@@ -1,0 +1,504 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>GrievLink — Every Voice Matters</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<style>
+  body { margin: 0; }
+  ::-webkit-scrollbar { width: 8px; height: 8px; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel" data-presets="react">
+const { useState, useEffect, useMemo, useCallback } = React;
+
+// ---- Supabase connection (plain REST + Auth) -------------------------
+const SUPABASE_URL = "https://fcgptufykqfbnemthflg.supabase.co";
+const SUPABASE_KEY = "sb_publishable_HJW8G7N_qf57vEIWPJvKig_uxuKimtT";
+
+async function sbAuth(path, body) {
+  const res = await fetch(`${SUPABASE_URL}/auth/v1/${path}`, {
+    method: "POST",
+    headers: { apikey: SUPABASE_KEY, "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error_description || data.msg || data.message || "Erreur d'authentification");
+  return data;
+}
+
+async function sbRest(path, { method = "GET", token, body } = {}) {
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
+    method,
+    headers: {
+      apikey: SUPABASE_KEY,
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+      Prefer: "return=representation",
+    },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  const data = await res.json().catch(() => ([]));
+  if (!res.ok) throw new Error(data.message || data.hint || "Erreur base de données");
+  return data;
+}
+
+// ---- Design tokens -----------------------------------------------------
+const C = {
+  basalt: "#151A1B", basaltMid: "#1E2527", basaltLine: "#2C3537",
+  paper: "#F5F2E9", paperDim: "#EAE5D6", ink: "#1D211E", inkSoft: "#5B615C",
+  brass: "#B9803F", brassLight: "#D9A468",
+  blue: "#33628F", amber: "#C6912A", green: "#3B8A5C", red: "#B84438", gray: "#82877E",
+};
+
+function statusColor(status) {
+  if (status === "Nouvelle") return C.blue;
+  if (status === "Résolue") return C.green;
+  if (status === "Clôturée") return C.gray;
+  return C.amber;
+}
+function isOverdue(g) {
+  if (g.status === "Résolue" || g.status === "Clôturée") return false;
+  if (!g.deadline) return false;
+  return new Date(g.deadline) < new Date();
+}
+
+const CATEGORIES = ["Emploi","Compensation","Environnement","Eau","Santé et sécurité","Bruit / poussière","Relations communautaires","Moyens de subsistance","VBG / EAS-HS","Protection de l'enfant","Autre"];
+const CHANNELS = ["Bureau communautaire","Ligne verte","Email","Boîte à suggestions","Réunion","Visite de terrain"];
+const PRIORITIES = ["Faible","Moyen","Élevé","Critique"];
+
+
+// ---- i18n (FR / EN) : les valeurs stockées en base restent en français ----
+const EN = {
+"Chaque voix compte.":"Every Voice Matters.",
+"Relier les communautés. Résoudre les plaintes.":"Connecting Communities. Resolving Grievances.",
+"E-mail":"Email","Mot de passe":"Password","6 caractères minimum":"6 characters minimum",
+"Entrez une adresse e-mail valide.":"Enter a valid email address.",
+"Le mot de passe doit contenir au moins 6 caractères.":"Password must be at least 6 characters.",
+"Compte créé. Vérifiez votre boîte mail si la confirmation est activée, sinon reconnectez-vous.":"Account created. Check your inbox if confirmation is enabled, otherwise sign in.",
+"Créer le compte":"Create account","Se connecter":"Sign in",
+"J'ai déjà un compte — me connecter":"I already have an account — sign in",
+"Pas encore de compte — en créer un":"No account yet — create one",
+"Tableau de bord":"Dashboard","Nouvelle plainte":"New grievance","Toutes les plaintes":"All grievances",
+"Rechercher":"Search","Statistiques":"Statistics","Carte":"Map","Utilisateurs":"Users","Paramètres":"Settings",
+"Se déconnecter":"Sign out","Nouvelle":"New",
+"Données en direct depuis Supabase":"Live data from Supabase",
+"Total plaintes":"Total grievances","Résolues / clôturées":"Resolved / closed","En cours":"In progress","En retard":"Overdue",
+"Dossiers récents":"Recent cases","Voir tout":"View all","Aucune plainte enregistrée pour l'instant.":"No grievances recorded yet.",
+"Dossier":"Case","Date":"Date","Village":"Village","Catégorie":"Category","Priorité":"Priority","Statut":"Status",
+"N° dossier, village, catégorie, statut…":"Case no., village, category, status…",
+"Aucun dossier ne correspond à la recherche.":"No case matches your search.",
+"Impossible de charger les plaintes :":"Unable to load grievances:","Chargement des dossiers…":"Loading cases…",
+"Le numéro de dossier (GL-2026-…) est généré automatiquement à l'enregistrement":"The case number (GL-2026-…) is generated automatically on save",
+"Dossier sensible — accès restreint, confidentialité renforcée":"Sensitive case — restricted access, enhanced confidentiality",
+"Le champ Village / Communauté est requis.":"The Village / Community field is required.",
+"Le champ Description est requis.":"The Description field is required.",
+"1. Informations générales":"1. General information","2. Plaignant":"2. Complainant",
+"3. Détails de la plainte":"3. Grievance details","4. Classification & traitement":"4. Classification & handling",
+"Date de réception":"Date received","Village / Communauté":"Village / Community","Canal de réception":"Reception channel",
+"Latitude (optionnel)":"Latitude (optional)","Longitude (optionnel)":"Longitude (optional)",
+"Ex : Kanzenze":"E.g. Kanzenze","Plainte anonyme":"Anonymous complaint","Nom et prénom":"Full name",
+"Sexe":"Gender","Contact":"Contact","Pièces jointes":"Attachments","Photo, audio ou document (v2)":"Photo, audio or document (v2)",
+"Description":"Description","Décrire les faits, personnes concernées, contexte…":"Describe the facts, people involved, context…",
+"Niveau de priorité":"Priority level","Date limite de résolution":"Resolution deadline","Statut initial":"Initial status",
+"Enregistrer la plainte":"Save grievance","Annuler":"Cancel",
+"Emploi":"Employment","Environnement":"Environment","Eau":"Water",
+"Santé et sécurité":"Health and safety","Bruit / poussière":"Noise / dust","Relations communautaires":"Community relations",
+"Moyens de subsistance":"Livelihoods","VBG / EAS-HS":"GBV / SEA-SH","Protection de l'enfant":"Child protection","Autre":"Other",
+"Bureau communautaire":"Community office","Ligne verte":"Hotline","Boîte à suggestions":"Suggestion box",
+"Réunion":"Meeting","Visite de terrain":"Field visit",
+"Faible":"Low","Moyen":"Medium","Élevé":"High","Critique":"Critical",
+"Femme":"Female","Homme":"Male",
+"Reçue":"Received","En analyse":"Under review","Décision":"Decision","Résolue":"Resolved","Clôturée":"Closed"
+};
+const savedLang = (() => { try { return localStorage.getItem("gl_lang"); } catch(e) { return null; } })();
+let LANG = savedLang || ((navigator.language || "fr").toLowerCase().startsWith("en") ? "en" : "fr");
+const t = (fr) => (LANG === "en" ? (EN[fr] ?? fr) : fr);
+
+function LangSwitch({ lang, setLang, dark }) {
+  const base = "px-2.5 py-1 text-xs font-bold tracking-wide";
+  const on = { background: C.brass, color: "#fff" };
+  const off = { background: "transparent", color: dark ? "#A9AFA6" : C.inkSoft };
+  return (
+    <div className="inline-flex overflow-hidden rounded border" style={{ borderColor: dark ? C.basaltLine : C.paperDim }}>
+      <button className={base} style={lang === "fr" ? on : off} onClick={() => setLang("fr")}>FR</button>
+      <button className={base} style={lang === "en" ? on : off} onClick={() => setLang("en")}>EN</button>
+    </div>
+  );
+}
+
+function Spinner() {
+  return <span className="inline-block h-3.5 w-3.5 animate-spin rounded-full border-2 border-current border-t-transparent" />;
+}
+function StatusBadge({ status }) {
+  const color = statusColor(status);
+  return (
+    <span className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold tracking-wide" style={{ background: color + "1a", color }}>
+      <span className="h-1.5 w-1.5 rounded-full" style={{ background: color }} />{t(status)}
+    </span>
+  );
+}
+function CaseTag({ id }) {
+  return <span className="inline-block rounded border px-2 py-0.5 font-mono text-xs tracking-widest" style={{ borderColor: C.brass, color: C.brass }}>{id || "—"}</span>;
+}
+function Topo() {
+  return (
+    <svg className="absolute inset-0 h-full w-full opacity-[0.07]" viewBox="0 0 400 400" preserveAspectRatio="none">
+      {[60,100,140,180,220,260,300,340].map((r,i) => (
+        <ellipse key={i} cx={120+i*8} cy={200-i*6} rx={r} ry={r*0.6} fill="none" stroke={C.brassLight} strokeWidth="1" />
+      ))}
+    </svg>
+  );
+}
+
+function LoginScreen({ onAuth, lang, setLang }) {
+  const [mode, setMode] = useState("signin");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [info, setInfo] = useState("");
+
+  const submit = async () => {
+    setError(""); setInfo("");
+    const cleanEmail = email.trim();
+    if (!cleanEmail || !cleanEmail.includes("@")) { setError(t("Entrez une adresse e-mail valide.")); return; }
+    if (password.length < 6) { setError(t("Le mot de passe doit contenir au moins 6 caractères.")); return; }
+    setLoading(true);
+    try {
+      if (mode === "signup") {
+        const data = await sbAuth("signup", { email, password });
+        if (data.access_token) { onAuth({ token: data.access_token, user: data.user }); }
+        else { setInfo(t("Compte créé. Vérifiez votre boîte mail si la confirmation est activée, sinon reconnectez-vous.")); setMode("signin"); }
+      } else {
+        const data = await sbAuth("token?grant_type=password", { email, password });
+        onAuth({ token: data.access_token, user: data.user });
+      }
+    } catch (err) { setError(err.message); }
+    finally { setLoading(false); }
+  };
+
+  return (
+    <div className="relative flex min-h-screen items-center justify-center overflow-hidden" style={{ background: C.basalt }}>
+      <Topo />
+      <div className="absolute right-4 top-4 z-20"><LangSwitch lang={lang} setLang={setLang} dark /></div>
+      <div className="relative z-10 w-full max-w-sm px-6">
+        <div className="mb-8 text-center">
+          <div className="mb-3 flex items-center justify-center gap-2">
+            <span style={{ color: C.brassLight }}>⛰</span>
+            <span className="font-mono text-[11px] tracking-[0.3em]" style={{ color: C.brassLight }}>GRM · ESG · SEP</span>
+          </div>
+          <h1 className="text-4xl font-black tracking-tight" style={{ color: C.paper }}>GrievLink</h1>
+          <p className="mt-2 text-sm italic" style={{ color: "#A9AFA6" }}>{t("Chaque voix compte.")}</p>
+        </div>
+        <div className="rounded-lg border p-6" style={{ background: C.basaltMid, borderColor: C.basaltLine }}>
+          <label className="mb-1 block text-xs font-semibold uppercase tracking-wider" style={{ color: "#8E948B" }}>{t("E-mail")}</label>
+          <input value={email} onChange={(e)=>setEmail(e.target.value)} placeholder="vous@organisation.org"
+            className="mb-4 w-full rounded border bg-transparent px-3 py-2 text-sm outline-none" style={{ borderColor: C.basaltLine, color: C.paper }} />
+          <label className="mb-1 block text-xs font-semibold uppercase tracking-wider" style={{ color: "#8E948B" }}>{t("Mot de passe")}</label>
+          <input type="password" value={password} onChange={(e)=>setPassword(e.target.value)} placeholder={t("6 caractères minimum")}
+            className="mb-2 w-full rounded border bg-transparent px-3 py-2 text-sm outline-none" style={{ borderColor: C.basaltLine, color: C.paper }} />
+          {error && <p className="mb-3 mt-2 text-xs font-semibold" style={{ color: "#E08A7D" }}>{error}</p>}
+          {info && <p className="mb-3 mt-2 text-xs font-semibold" style={{ color: C.brassLight }}>{info}</p>}
+          <button onClick={submit} disabled={loading} className="mt-4 flex w-full items-center justify-center gap-2 rounded py-2.5 text-sm font-bold uppercase tracking-wide transition disabled:opacity-60" style={{ background: C.brass, color: C.basalt }}>
+            {loading && <Spinner />}{t(mode === "signup" ? "Créer le compte" : "Se connecter")}
+          </button>
+          <button onClick={() => { setMode(mode === "signup" ? "signin" : "signup"); setError(""); setInfo(""); }}
+            className="mt-3 w-full text-center text-xs underline underline-offset-2" style={{ color: "#8E948B" }}>
+            {t(mode === "signup" ? "J'ai déjà un compte — me connecter" : "Pas encore de compte — en créer un")}
+          </button>
+        </div>
+        <p className="mt-6 text-center text-[11px]" style={{ color: "#6C716A" }}>{t("Relier les communautés. Résoudre les plaintes.")}</p>
+      </div>
+    </div>
+  );
+}
+
+function Sidebar({ view, setView, onLogout }) {
+  const items = [
+    { key: "dashboard", label: t("Tableau de bord"), emoji: "🏠", active: true },
+    { key: "new", label: t("Nouvelle plainte"), emoji: "➕", active: true },
+    { key: "list", label: t("Toutes les plaintes"), emoji: "📋", active: true },
+    { key: "search", label: t("Rechercher"), emoji: "🔎", active: true },
+    { key: "stats", label: t("Statistiques"), emoji: "📊", active: false },
+    { key: "map", label: t("Carte"), emoji: "🗺", active: false },
+    { key: "users", label: t("Utilisateurs"), emoji: "👥", active: false },
+    { key: "settings", label: t("Paramètres"), emoji: "⚙", active: false },
+  ];
+  return (
+    <div className="hidden w-60 shrink-0 flex-col border-r p-4 sm:flex" style={{ background: C.basalt, borderColor: C.basaltLine }}>
+      <div className="mb-6 flex items-center gap-2 px-2">
+        <span style={{ color: C.brassLight }}>⛰</span>
+        <span className="text-lg font-black tracking-tight" style={{ color: C.paper }}>GrievLink</span>
+      </div>
+      <nav className="flex flex-1 flex-col gap-1">
+        {items.map(({ key, label, emoji, active }) => (
+          <button key={key} disabled={!active} onClick={() => active && setView(key)}
+            className="flex items-center justify-between rounded px-3 py-2 text-sm transition disabled:opacity-40"
+            style={{ background: view === key ? C.basaltMid : "transparent", color: view === key ? C.brassLight : "#C7CBC0" }}>
+            <span className="flex items-center gap-2.5"><span>{emoji}</span>{label}</span>
+            {!active && <span className="rounded bg-white/5 px-1.5 py-0.5 text-[9px] tracking-wide" style={{ color: "#7A7F76" }}>V2</span>}
+          </button>
+        ))}
+      </nav>
+      <button onClick={onLogout} className="mt-4 flex items-center gap-2 px-3 py-2 text-xs" style={{ color: "#7A7F76" }}>↩ {t("Se déconnecter")}</button>
+    </div>
+  );
+}
+
+function Dashboard({ grievances, setView }) {
+  const total = grievances.length;
+  const resolved = grievances.filter(g => g.status === "Résolue" || g.status === "Clôturée").length;
+  const overdue = grievances.filter(isOverdue).length;
+  const open = total - resolved;
+  const stats = [
+    { label: t("Total plaintes"), value: total, color: C.ink, emoji: "📋" },
+    { label: t("Résolues / clôturées"), value: resolved, color: C.green, emoji: "✅" },
+    { label: t("En cours"), value: open, color: C.amber, emoji: "⏱" },
+    { label: t("En retard"), value: overdue, color: C.red, emoji: "⚠️" },
+  ];
+  return (
+    <div className="p-6 sm:p-8">
+      <div className="mb-6 flex items-center justify-between">
+        <div>
+          <h2 className="text-2xl font-black tracking-tight" style={{ color: C.ink }}>{t("Tableau de bord")}</h2>
+          <p className="text-sm" style={{ color: C.inkSoft }}>{t("Données en direct depuis Supabase")}</p>
+        </div>
+        <button onClick={() => setView("new")} className="flex items-center gap-2 rounded px-4 py-2 text-sm font-bold text-white" style={{ background: C.brass }}>➕ {t("Nouvelle plainte")}</button>
+      </div>
+      <div className="mb-8 grid grid-cols-2 gap-4 lg:grid-cols-4">
+        {stats.map(({ label, value, color, emoji }) => (
+          <div key={label} className="rounded-lg border p-4" style={{ borderColor: C.paperDim, background: "#fff" }}>
+            <div className="mb-3 flex items-center justify-between">
+              <span className="text-xs font-semibold uppercase tracking-wide" style={{ color: C.inkSoft }}>{label}</span>
+              <span>{emoji}</span>
+            </div>
+            <span className="text-3xl font-black" style={{ color }}>{value}</span>
+          </div>
+        ))}
+      </div>
+      <div className="rounded-lg border" style={{ borderColor: C.paperDim, background: "#fff" }}>
+        <div className="flex items-center justify-between border-b px-5 py-3" style={{ borderColor: C.paperDim }}>
+          <h3 className="text-sm font-bold" style={{ color: C.ink }}>{t("Dossiers récents")}</h3>
+          <button onClick={() => setView("list")} className="flex items-center gap-1 text-xs font-semibold" style={{ color: C.brass }}>{t("Voir tout")} ›</button>
+        </div>
+        <div>
+          {grievances.length === 0 && <p className="px-5 py-8 text-center text-sm" style={{ color: C.inkSoft }}>{t("Aucune plainte enregistrée pour l'instant.")}</p>}
+          {grievances.slice(-5).reverse().map(g => (
+            <div key={g.id} className="flex items-center justify-between border-b px-5 py-3 text-sm last:border-0" style={{ borderColor: C.paperDim }}>
+              <div className="flex items-center gap-3">
+                <CaseTag id={g.case_number} />
+                <span style={{ color: C.ink }}>{g.village || "—"} · {t(g.category)}</span>
+                {g.category === "VBG / EAS-HS" && <span style={{ color: C.red }}>🔒</span>}
+              </div>
+              <StatusBadge status={g.status} />
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ListView({ grievances, setView }) {
+  const [q, setQ] = useState("");
+  const filtered = useMemo(() => {
+    const term = q.toLowerCase();
+    return grievances.filter(g => [g.case_number, g.village, g.category, g.status, g.complainant_name].join(" ").toLowerCase().includes(term));
+  }, [q, grievances]);
+  return (
+    <div className="p-6 sm:p-8">
+      <div className="mb-6 flex items-center justify-between">
+        <h2 className="text-2xl font-black tracking-tight" style={{ color: C.ink }}>{t("Toutes les plaintes")}</h2>
+        <button onClick={() => setView("new")} className="flex items-center gap-2 rounded px-4 py-2 text-sm font-bold text-white" style={{ background: C.brass }}>➕ {t("Nouvelle plainte")}</button>
+      </div>
+      <div className="relative mb-4 max-w-sm">
+        <input value={q} onChange={(e)=>setQ(e.target.value)} placeholder={"🔎 " + t("N° dossier, village, catégorie, statut…")}
+          className="w-full rounded border py-2 px-3 text-sm outline-none" style={{ borderColor: C.paperDim }} />
+      </div>
+      <div className="overflow-hidden rounded-lg border" style={{ borderColor: C.paperDim, background: "#fff" }}>
+        <table className="w-full text-left text-sm">
+          <thead><tr style={{ background: C.paperDim }}>
+            {["Dossier","Date","Village","Catégorie","Priorité","Statut"].map(h => <th key={h} className="px-4 py-2 text-xs font-semibold uppercase tracking-wide" style={{ color: C.inkSoft }}>{t(h)}</th>)}
+          </tr></thead>
+          <tbody>
+            {filtered.map(g => (
+              <tr key={g.id} className="border-t" style={{ borderColor: C.paperDim }}>
+                <td className="px-4 py-2.5"><CaseTag id={g.case_number} /></td>
+                <td className="px-4 py-2.5" style={{ color: C.ink }}>{g.date_received}</td>
+                <td className="px-4 py-2.5" style={{ color: C.ink }}>{g.village || "—"}</td>
+                <td className="px-4 py-2.5" style={{ color: C.ink }}>{t(g.category)}</td>
+                <td className="px-4 py-2.5" style={{ color: C.ink }}>{t(g.priority)}</td>
+                <td className="px-4 py-2.5"><StatusBadge status={g.status} /></td>
+              </tr>
+            ))}
+            {filtered.length === 0 && <tr><td colSpan={6} className="px-4 py-8 text-center text-sm" style={{ color: C.inkSoft }}>{t("Aucun dossier ne correspond à la recherche.")}</td></tr>}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function Field({ label, children, required }) {
+  return (
+    <label className="block">
+      <span className="mb-1 block text-xs font-semibold uppercase tracking-wide" style={{ color: C.inkSoft }}>{label}{required && <span style={{ color: C.red }}> *</span>}</span>
+      {children}
+    </label>
+  );
+}
+const inputCls = "w-full rounded border px-3 py-2 text-sm outline-none";
+const inputStyle = { borderColor: C.paperDim, color: C.ink };
+
+function NewGrievanceForm({ token, onCreated, setView }) {
+  const [form, setForm] = useState({
+    date: new Date().toISOString().slice(0,10), village: "", lat: "", lng: "",
+    anonymous: false, name: "", gender: "Femme", contact: "",
+    channel: CHANNELS[0], category: CATEGORIES[0], description: "", priority: "Moyen", deadline: "",
+  });
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const set = (k) => (e) => setForm(f => ({ ...f, [k]: e.target?.value ?? e }));
+  const sensitive = form.category === "VBG / EAS-HS" || form.category === "Protection de l'enfant";
+
+  const submit = async () => {
+    setError("");
+    if (!form.village.trim()) { setError(t("Le champ Village / Communauté est requis.")); return; }
+    if (!form.description.trim()) { setError(t("Le champ Description est requis.")); return; }
+    setSaving(true);
+    try {
+      const payload = {
+        date_received: form.date, village: form.village || null, channel: form.channel,
+        is_anonymous: form.anonymous,
+        complainant_name: form.anonymous ? null : (form.name || null),
+        complainant_gender: form.anonymous ? null : form.gender,
+        complainant_contact: form.anonymous ? null : (form.contact || null),
+        category: form.category, description: form.description, priority: form.priority,
+        deadline: form.deadline || null,
+        latitude: form.lat ? Number(form.lat) : null, longitude: form.lng ? Number(form.lng) : null,
+      };
+      const rows = await sbRest("grievances", { method: "POST", token, body: payload });
+      onCreated(rows[0]);
+      setView("dashboard");
+    } catch (err) { setError(err.message); }
+    finally { setSaving(false); }
+  };
+
+  return (
+    <div className="p-6 sm:p-8">
+      <div className="mb-6 flex items-center gap-3">
+        <button onClick={() => setView("dashboard")} className="rounded p-1.5" style={{ color: C.inkSoft }}>‹</button>
+        <div>
+          <h2 className="text-2xl font-black tracking-tight" style={{ color: C.ink }}>{t("Nouvelle plainte")}</h2>
+          <p className="text-sm" style={{ color: C.inkSoft }}>{t("Le numéro de dossier (GL-2026-…) est généré automatiquement à l'enregistrement")}</p>
+        </div>
+      </div>
+      {sensitive && <div className="mb-5 flex items-center gap-2 rounded border px-4 py-3 text-sm font-semibold" style={{ borderColor: C.red, color: C.red, background: C.red + "0d" }}>⚠️ {t("Dossier sensible — accès restreint, confidentialité renforcée")}</div>}
+      {error && <div className="mb-5 rounded border px-4 py-3 text-sm font-semibold" style={{ borderColor: C.red, color: C.red, background: C.red + "0d" }}>{error}</div>}
+      <div className="space-y-8">
+        <section className="rounded-lg border p-5" style={{ borderColor: C.paperDim, background: "#fff" }}>
+          <h3 className="mb-4 text-sm font-bold" style={{ color: C.brass }}>{t("1. Informations générales")}</h3>
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            <Field label={t("Date de réception")} required><input type="date" value={form.date} onChange={set("date")} className={inputCls} style={inputStyle} /></Field>
+            <Field label={t("Village / Communauté")} required><input value={form.village} onChange={set("village")} placeholder={t("Ex : Kanzenze")} className={inputCls} style={inputStyle} /></Field>
+            <Field label={t("Canal de réception")}><select value={form.channel} onChange={set("channel")} className={inputCls} style={inputStyle}>{CHANNELS.map(c=><option key={c} value={c}>{t(c)}</option>)}</select></Field>
+            <Field label={t("Latitude (optionnel)")}><input value={form.lat} onChange={set("lat")} placeholder="-10.71" className={inputCls} style={inputStyle} /></Field>
+            <Field label={t("Longitude (optionnel)")}><input value={form.lng} onChange={set("lng")} placeholder="25.47" className={inputCls} style={inputStyle} /></Field>
+          </div>
+        </section>
+        <section className="rounded-lg border p-5" style={{ borderColor: C.paperDim, background: "#fff" }}>
+          <h3 className="mb-4 text-sm font-bold" style={{ color: C.brass }}>{t("2. Plaignant")}</h3>
+          <label className="mb-4 flex items-center gap-2 text-sm" style={{ color: C.ink }}>
+            <input type="checkbox" checked={form.anonymous} onChange={(e)=>set("anonymous")(e.target.checked)} /> {t("Plainte anonyme")}
+          </label>
+          {!form.anonymous && (
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              <Field label={t("Nom et prénom")}><input value={form.name} onChange={set("name")} className={inputCls} style={inputStyle} /></Field>
+              <Field label={t("Sexe")}><select value={form.gender} onChange={set("gender")} className={inputCls} style={inputStyle}><option value="Femme">{t("Femme")}</option><option value="Homme">{t("Homme")}</option><option value="Autre">{t("Autre")}</option></select></Field>
+              <Field label={t("Contact")}><input value={form.contact} onChange={set("contact")} placeholder="+243 …" className={inputCls} style={inputStyle} /></Field>
+            </div>
+          )}
+        </section>
+        <section className="rounded-lg border p-5" style={{ borderColor: C.paperDim, background: "#fff" }}>
+          <h3 className="mb-4 text-sm font-bold" style={{ color: C.brass }}>{t("3. Détails de la plainte")}</h3>
+          <div className="mb-4 grid gap-4 sm:grid-cols-2">
+            <Field label={t("Catégorie")} required><select value={form.category} onChange={set("category")} className={inputCls} style={inputStyle}>{CATEGORIES.map(c=><option key={c} value={c}>{t(c)}</option>)}</select></Field>
+            <Field label={t("Pièces jointes")}><div className="flex items-center gap-2 rounded border px-3 py-2 text-sm" style={{ borderColor: C.paperDim, color: C.inkSoft }}>📎 {t("Photo, audio ou document (v2)")}</div></Field>
+          </div>
+          <Field label={t("Description")} required><textarea rows={4} value={form.description} onChange={set("description")} placeholder={t("Décrire les faits, personnes concernées, contexte…")} className={inputCls} style={inputStyle} /></Field>
+        </section>
+        <section className="rounded-lg border p-5" style={{ borderColor: C.paperDim, background: "#fff" }}>
+          <h3 className="mb-4 text-sm font-bold" style={{ color: C.brass }}>{t("4. Classification & traitement")}</h3>
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            <Field label={t("Niveau de priorité")}><select value={form.priority} onChange={set("priority")} className={inputCls} style={inputStyle}>{PRIORITIES.map(p=><option key={p} value={p}>{t(p)}</option>)}</select></Field>
+            <Field label={t("Date limite de résolution")}><input type="date" value={form.deadline} onChange={set("deadline")} className={inputCls} style={inputStyle} /></Field>
+            <Field label={t("Statut initial")}><input disabled value={t("Nouvelle")} className={inputCls} style={{ ...inputStyle, background: C.paperDim }} /></Field>
+          </div>
+        </section>
+        <div className="flex items-center gap-3">
+          <button onClick={submit} disabled={saving} className="flex items-center gap-2 rounded px-6 py-2.5 text-sm font-bold text-white disabled:opacity-60" style={{ background: C.brass }}>{saving && <Spinner />}Enregistrer la plainte</button>
+          <button onClick={() => setView("dashboard")} className="text-sm font-semibold" style={{ color: C.inkSoft }}>{t("Annuler")}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function GrievLinkApp() {
+  const [lang, setLangState] = useState(LANG);
+  LANG = lang;
+  const setLang = (l) => { LANG = l; try { localStorage.setItem("gl_lang", l); } catch(e) {} setLangState(l); };
+  const [session, setSession] = useState(null);
+  const [view, setView] = useState("dashboard");
+  const [grievances, setGrievances] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState("");
+
+  const loadGrievances = useCallback(async (token) => {
+    setLoading(true); setLoadError("");
+    try { setGrievances(await sbRest("grievances?select=*&order=created_at.asc", { token })); }
+    catch (err) { setLoadError(err.message); }
+    finally { setLoading(false); }
+  }, []);
+
+  useEffect(() => { if (session?.token) loadGrievances(session.token); }, [session, loadGrievances]);
+
+  if (!session) return <LoginScreen onAuth={setSession} lang={lang} setLang={setLang} />;
+
+  return (
+    <div className="flex min-h-screen" style={{ background: C.paper, fontFamily: "ui-sans-serif, system-ui, sans-serif" }}>
+      <Sidebar view={view} setView={setView} onLogout={() => setSession(null)} />
+      <main className="flex-1 overflow-auto">
+        <div className="flex items-center justify-between border-b px-4 py-2 sm:justify-end" style={{ borderColor: C.paperDim }}>
+          <span className="text-base font-black sm:hidden" style={{ color: C.ink }}>⛰ GrievLink</span>
+          <div className="flex items-center gap-3">
+            <LangSwitch lang={lang} setLang={setLang} />
+            <button onClick={() => setSession(null)} className="text-xs sm:hidden" style={{ color: C.inkSoft }}>↩ {t("Se déconnecter")}</button>
+          </div>
+        </div>
+        <div className="flex gap-1 overflow-x-auto border-b px-2 py-1.5 sm:hidden" style={{ borderColor: C.paperDim }}>
+          {[["dashboard","🏠","Tableau de bord"],["new","➕","Nouvelle plainte"],["list","📋","Toutes les plaintes"]].map(([k,e,l]) => (
+            <button key={k} onClick={() => setView(k)} className="whitespace-nowrap rounded px-3 py-1.5 text-xs font-semibold" style={{ background: view === k ? C.brass : "transparent", color: view === k ? "#fff" : C.inkSoft }}>{e} {t(l)}</button>
+          ))}
+        </div>
+        {loadError && <div className="m-6 rounded border px-4 py-3 text-sm font-semibold" style={{ borderColor: C.red, color: C.red, background: C.red + "0d" }}>{t("Impossible de charger les plaintes :")} {loadError}</div>}
+        {loading && <div className="flex items-center gap-2 p-6 text-sm" style={{ color: C.inkSoft }}><Spinner /> {t("Chargement des dossiers…")}</div>}
+        {!loading && view === "dashboard" && <Dashboard grievances={grievances} setView={setView} />}
+        {!loading && view === "new" && <NewGrievanceForm token={session.token} setView={setView} onCreated={(row)=>setGrievances(prev=>[...prev,row])} />}
+        {!loading && (view === "list" || view === "search") && <ListView grievances={grievances} setView={setView} />}
+      </main>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<GrievLinkApp />);
+</script>
+</body>
+</html>
