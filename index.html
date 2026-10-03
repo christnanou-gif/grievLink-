@@ -49,6 +49,21 @@ async function sbRest(path, { method = "GET", token, body } = {}) {
   return data;
 }
 
+
+async function sbSetPassword(token, password) {
+  const res = await fetch(`${SUPABASE_URL}/auth/v1/user`, {
+    method: "PUT",
+    headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ password }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error_description || data.msg || data.message || "Erreur");
+  return data;
+}
+const ROLES = ["admin", "manager", "agent"];
+const ROLE_LABEL = { admin: "Administrateur", manager: "Manager de département", agent: "Agent de terrain" };
+const DEPARTMENTS = ["Relations communautaires", "Environnement", "Santé et sécurité", "Ressources humaines", "Juridique", "Direction", "Terrain"];
+
 // ---- Design tokens -----------------------------------------------------
 const C = {
   basalt: "#151A1B", basaltMid: "#1E2527", basaltLine: "#2C3537",
@@ -115,6 +130,19 @@ const EN = {
 "Réunion":"Meeting","Visite de terrain":"Field visit",
 "Faible":"Low","Moyen":"Medium","Élevé":"High","Critique":"Critical",
 "Femme":"Female","Homme":"Male",
+"Mon compte":"My account","Administrateur":"Administrator","Manager de département":"Department manager","Agent de terrain":"Field agent",
+"Rôle":"Role","Département":"Department","Compte actif":"Active account","Enregistrer":"Save","En attente":"Pending","Vous":"You",
+"Changer le mot de passe":"Change password","Nouveau mot de passe":"New password","Confirmer le mot de passe":"Confirm password",
+"Les mots de passe ne correspondent pas.":"Passwords do not match.","Mot de passe modifié avec succès.":"Password updated successfully.",
+"Informations du compte":"Account information","Nom complet":"Full name",
+"Compte en attente d'activation":"Account pending activation",
+"Votre compte a été créé. Un administrateur doit l'activer avant que vous puissiez accéder à la plateforme.":"Your account has been created. An administrator must activate it before you can access the platform.",
+"Profil introuvable. Le script SQL du lot 1 doit être exécuté dans Supabase.":"Profile not found. The batch 1 SQL script must be run in Supabase.",
+"Gestion des utilisateurs":"User management","Attribuez les rôles et activez les comptes":"Assign roles and activate accounts",
+"Ajouter un utilisateur":"Add a user","Créer l'utilisateur":"Create user","Utilisateur créé.":"User created.",
+"Modifications enregistrées.":"Changes saved.","Ressources humaines":"Human resources","Juridique":"Legal","Direction":"Management",
+"Terrain":"Field operations","Chargement…":"Loading…","Profil":"Profile","Recharger":"Reload",
+
 "Reçue":"Received","En analyse":"Under review","Décision":"Decision","Résolue":"Resolved","Clôturée":"Closed"
 };
 const savedLang = (() => { try { return localStorage.getItem("gl_lang"); } catch(e) { return null; } })();
@@ -220,7 +248,7 @@ function LoginScreen({ onAuth, lang, setLang }) {
   );
 }
 
-function Sidebar({ view, setView, onLogout }) {
+function navItems(role) {
   const items = [
     { key: "dashboard", label: t("Tableau de bord"), emoji: "🏠", active: true },
     { key: "new", label: t("Nouvelle plainte"), emoji: "➕", active: true },
@@ -228,9 +256,14 @@ function Sidebar({ view, setView, onLogout }) {
     { key: "search", label: t("Rechercher"), emoji: "🔎", active: true },
     { key: "stats", label: t("Statistiques"), emoji: "📊", active: false },
     { key: "map", label: t("Carte"), emoji: "🗺", active: false },
-    { key: "users", label: t("Utilisateurs"), emoji: "👥", active: false },
-    { key: "settings", label: t("Paramètres"), emoji: "⚙", active: false },
   ];
+  if (role === "admin") items.push({ key: "users", label: t("Utilisateurs"), emoji: "👥", active: true });
+  items.push({ key: "account", label: t("Mon compte"), emoji: "⚙", active: true });
+  return items;
+}
+
+function Sidebar({ view, setView, onLogout, profile }) {
+  const items = navItems(profile.role);
   return (
     <div className="hidden w-60 shrink-0 flex-col border-r p-4 sm:flex" style={{ background: C.basalt, borderColor: C.basaltLine }}>
       <div className="mb-6 flex items-center gap-2 px-2">
@@ -247,7 +280,177 @@ function Sidebar({ view, setView, onLogout }) {
           </button>
         ))}
       </nav>
-      <button onClick={onLogout} className="mt-4 flex items-center gap-2 px-3 py-2 text-xs" style={{ color: "#7A7F76" }}>↩ {t("Se déconnecter")}</button>
+      <div className="mt-4 border-t px-2 pt-3" style={{ borderColor: C.basaltLine }}>
+        <p className="truncate text-xs font-semibold" style={{ color: C.paper }}>{profile.full_name || profile.email}</p>
+        <p className="text-[11px]" style={{ color: C.brassLight }}>{t(ROLE_LABEL[profile.role])}</p>
+        <button onClick={onLogout} className="mt-2 flex items-center gap-2 py-1 text-xs" style={{ color: "#7A7F76" }}>↩ {t("Se déconnecter")}</button>
+      </div>
+    </div>
+  );
+}
+
+function Notice({ kind, children }) {
+  const color = kind === "ok" ? C.green : C.red;
+  return <div className="mb-4 rounded border px-4 py-3 text-sm font-semibold" style={{ borderColor: color, color, background: color + "0d" }}>{children}</div>;
+}
+
+function AccountView({ session, profile }) {
+  const [pw, setPw] = useState("");
+  const [pw2, setPw2] = useState("");
+  const [msg, setMsg] = useState(null);
+  const [saving, setSaving] = useState(false);
+  const change = async () => {
+    setMsg(null);
+    if (pw.length < 6) { setMsg({ k: "err", m: t("Le mot de passe doit contenir au moins 6 caractères.") }); return; }
+    if (pw !== pw2) { setMsg({ k: "err", m: t("Les mots de passe ne correspondent pas.") }); return; }
+    setSaving(true);
+    try { await sbSetPassword(session.token, pw); setMsg({ k: "ok", m: t("Mot de passe modifié avec succès.") }); setPw(""); setPw2(""); }
+    catch (e) { setMsg({ k: "err", m: e.message }); }
+    finally { setSaving(false); }
+  };
+  const row = (l, v) => (
+    <div className="flex justify-between border-b py-2 text-sm last:border-0" style={{ borderColor: C.paperDim }}>
+      <span style={{ color: C.inkSoft }}>{l}</span><span className="font-semibold" style={{ color: C.ink }}>{v || "—"}</span>
+    </div>);
+  return (
+    <div className="max-w-xl p-6 sm:p-8">
+      <h2 className="mb-6 text-2xl font-black tracking-tight" style={{ color: C.ink }}>{t("Mon compte")}</h2>
+      <section className="mb-6 rounded-lg border p-5" style={{ borderColor: C.paperDim, background: "#fff" }}>
+        <h3 className="mb-2 text-sm font-bold" style={{ color: C.brass }}>{t("Informations du compte")}</h3>
+        {row(t("Nom complet"), profile.full_name)}
+        {row(t("E-mail"), profile.email)}
+        {row(t("Rôle"), t(ROLE_LABEL[profile.role]))}
+        {row(t("Département"), profile.department && t(profile.department))}
+      </section>
+      <section className="rounded-lg border p-5" style={{ borderColor: C.paperDim, background: "#fff" }}>
+        <h3 className="mb-4 text-sm font-bold" style={{ color: C.brass }}>{t("Changer le mot de passe")}</h3>
+        {msg && <Notice kind={msg.k}>{msg.m}</Notice>}
+        <div className="space-y-4">
+          <Field label={t("Nouveau mot de passe")}><input type="password" value={pw} onChange={(e)=>setPw(e.target.value)} className={inputCls} style={inputStyle} /></Field>
+          <Field label={t("Confirmer le mot de passe")}><input type="password" value={pw2} onChange={(e)=>setPw2(e.target.value)} className={inputCls} style={inputStyle} /></Field>
+          <button onClick={change} disabled={saving} className="flex items-center gap-2 rounded px-5 py-2 text-sm font-bold text-white disabled:opacity-60" style={{ background: C.brass }}>{saving && <Spinner />}{t("Changer le mot de passe")}</button>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function RoleFields({ role, setRole, dept, setDept, disabled }) {
+  return (
+    <>
+      <Field label={t("Rôle")}>
+        <select disabled={disabled} value={role} onChange={(e)=>setRole(e.target.value)} className={inputCls} style={inputStyle}>
+          {ROLES.map(r => <option key={r} value={r}>{t(ROLE_LABEL[r])}</option>)}
+        </select>
+      </Field>
+      <Field label={t("Département")}>
+        <select value={dept} onChange={(e)=>setDept(e.target.value)} className={inputCls} style={inputStyle}>
+          <option value="">—</option>
+          {DEPARTMENTS.map(d => <option key={d} value={d}>{t(d)}</option>)}
+        </select>
+      </Field>
+    </>
+  );
+}
+
+function UserRow({ u, token, isSelf, onSaved }) {
+  const [name, setName] = useState(u.full_name || "");
+  const [role, setRole] = useState(u.role);
+  const [dept, setDept] = useState(u.department || "");
+  const [active, setActive] = useState(!!u.active);
+  const [saving, setSaving] = useState(false);
+  const [msg, setMsg] = useState(null);
+  const save = async () => {
+    setSaving(true); setMsg(null);
+    try {
+      await sbRest(`profiles?id=eq.${u.id}`, { method: "PATCH", token, body: { full_name: name || null, role, department: dept || null, active } });
+      setMsg({ k: "ok", m: t("Modifications enregistrées.") }); onSaved();
+    } catch (e) { setMsg({ k: "err", m: e.message }); }
+    finally { setSaving(false); }
+  };
+  return (
+    <div className="mb-3 rounded-lg border p-4" style={{ borderColor: C.paperDim, background: "#fff" }}>
+      <div className="mb-3 flex items-center justify-between">
+        <span className="truncate text-sm font-bold" style={{ color: C.ink }}>{u.email}{isSelf && <span className="ml-2 text-xs font-semibold" style={{ color: C.brass }}>({t("Vous")})</span>}</span>
+        <span className="rounded-full px-2 py-0.5 text-[11px] font-semibold" style={{ background: (u.active ? C.green : C.amber) + "1a", color: u.active ? C.green : C.amber }}>{u.active ? t("Compte actif") : t("En attente")}</span>
+      </div>
+      <div className="grid gap-3 sm:grid-cols-3">
+        <Field label={t("Nom complet")}><input value={name} onChange={(e)=>setName(e.target.value)} className={inputCls} style={inputStyle} /></Field>
+        <RoleFields role={role} setRole={setRole} dept={dept} setDept={setDept} disabled={isSelf} />
+      </div>
+      <div className="mt-3 flex items-center justify-between">
+        <label className="flex items-center gap-2 text-sm" style={{ color: C.ink }}>
+          <input type="checkbox" disabled={isSelf} checked={active} onChange={(e)=>setActive(e.target.checked)} /> {t("Compte actif")}
+        </label>
+        <button onClick={save} disabled={saving} className="flex items-center gap-2 rounded px-4 py-1.5 text-xs font-bold text-white disabled:opacity-60" style={{ background: C.brass }}>{saving && <Spinner />}{t("Enregistrer")}</button>
+      </div>
+      {msg && <p className="mt-2 text-xs font-semibold" style={{ color: msg.k === "ok" ? C.green : C.red }}>{msg.m}</p>}
+    </div>
+  );
+}
+
+function UsersView({ token, meId }) {
+  const [users, setUsers] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [f, setF] = useState({ email: "", password: "", name: "", role: "agent", dept: "" });
+  const [msg, setMsg] = useState(null);
+  const [adding, setAdding] = useState(false);
+  const load = useCallback(async () => {
+    try { setUsers(await sbRest("profiles?select=*&order=created_at.asc", { token })); setError(""); }
+    catch (e) { setError(e.message); } finally { setLoading(false); }
+  }, [token]);
+  useEffect(() => { load(); }, [load]);
+
+  const add = async () => {
+    setMsg(null);
+    if (!f.email.includes("@")) { setMsg({ k: "err", m: t("Entrez une adresse e-mail valide.") }); return; }
+    if (f.password.length < 6) { setMsg({ k: "err", m: t("Le mot de passe doit contenir au moins 6 caractères.") }); return; }
+    setAdding(true);
+    try {
+      const data = await sbAuth("signup", { email: f.email.trim(), password: f.password, data: { full_name: f.name } });
+      const id = data.user?.id || data.id;
+      if (!id) throw new Error("Erreur");
+      await sbRest(`profiles?id=eq.${id}`, { method: "PATCH", token, body: { full_name: f.name || null, role: f.role, department: f.dept || null, active: true } });
+      setMsg({ k: "ok", m: t("Utilisateur créé.") });
+      setF({ email: "", password: "", name: "", role: "agent", dept: "" });
+      load();
+    } catch (e) { setMsg({ k: "err", m: e.message }); }
+    finally { setAdding(false); }
+  };
+
+  return (
+    <div className="p-6 sm:p-8">
+      <h2 className="text-2xl font-black tracking-tight" style={{ color: C.ink }}>{t("Gestion des utilisateurs")}</h2>
+      <p className="mb-6 text-sm" style={{ color: C.inkSoft }}>{t("Attribuez les rôles et activez les comptes")}</p>
+      <section className="mb-8 rounded-lg border p-5" style={{ borderColor: C.paperDim, background: "#fff" }}>
+        <h3 className="mb-4 text-sm font-bold" style={{ color: C.brass }}>{t("Ajouter un utilisateur")}</h3>
+        {msg && <Notice kind={msg.k}>{msg.m}</Notice>}
+        <div className="grid gap-3 sm:grid-cols-3">
+          <Field label={t("E-mail")}><input value={f.email} onChange={(e)=>setF({ ...f, email: e.target.value })} className={inputCls} style={inputStyle} /></Field>
+          <Field label={t("Mot de passe")}><input type="password" value={f.password} onChange={(e)=>setF({ ...f, password: e.target.value })} placeholder={t("6 caractères minimum")} className={inputCls} style={inputStyle} /></Field>
+          <Field label={t("Nom complet")}><input value={f.name} onChange={(e)=>setF({ ...f, name: e.target.value })} className={inputCls} style={inputStyle} /></Field>
+          <RoleFields role={f.role} setRole={(v)=>setF({ ...f, role: v })} dept={f.dept} setDept={(v)=>setF({ ...f, dept: v })} />
+        </div>
+        <button onClick={add} disabled={adding} className="mt-4 flex items-center gap-2 rounded px-5 py-2 text-sm font-bold text-white disabled:opacity-60" style={{ background: C.brass }}>{adding && <Spinner />}{t("Créer l'utilisateur")}</button>
+      </section>
+      {error && <Notice kind="err">{error}</Notice>}
+      {loading ? <div className="flex items-center gap-2 text-sm" style={{ color: C.inkSoft }}><Spinner /> {t("Chargement…")}</div>
+        : users.map(u => <UserRow key={u.id + String(u.active) + u.role} u={u} token={token} isSelf={u.id === meId} onSaved={load} />)}
+    </div>
+  );
+}
+
+function StatusScreen({ title, text, lang, setLang, onLogout, onReload }) {
+  return (
+    <div className="relative flex min-h-screen items-center justify-center px-6" style={{ background: C.basalt }}>
+      <div className="absolute right-4 top-4"><LangSwitch lang={lang} setLang={setLang} dark /></div>
+      <div className="max-w-sm rounded-lg border p-6 text-center" style={{ background: C.basaltMid, borderColor: C.basaltLine }}>
+        <p className="mb-2 text-lg font-black" style={{ color: C.paper }}>{title}</p>
+        <p className="mb-5 text-sm" style={{ color: "#A9AFA6" }}>{text}</p>
+        {onReload && <button onClick={onReload} className="mb-3 w-full rounded py-2 text-sm font-bold" style={{ background: C.brass, color: C.basalt }}>{t("Recharger")}</button>}
+        <button onClick={onLogout} className="text-xs underline" style={{ color: "#8E948B" }}>{t("Se déconnecter")}</button>
+      </div>
     </div>
   );
 }
@@ -456,10 +659,22 @@ function GrievLinkApp() {
   LANG = lang;
   const setLang = (l) => { LANG = l; try { localStorage.setItem("gl_lang", l); } catch(e) {} setLangState(l); };
   const [session, setSession] = useState(null);
+  const [profile, setProfile] = useState(null);
+  const [pState, setPState] = useState("idle");
   const [view, setView] = useState("dashboard");
   const [grievances, setGrievances] = useState([]);
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState("");
+
+  const logout = () => { setSession(null); setProfile(null); setPState("idle"); setGrievances([]); setView("dashboard"); };
+
+  const loadProfile = useCallback(async (sess) => {
+    setPState("loading");
+    try {
+      const rows = await sbRest(`profiles?select=*&id=eq.${sess.user.id}`, { token: sess.token });
+      if (rows[0]) { setProfile(rows[0]); setPState("ready"); } else setPState("missing");
+    } catch (e) { setPState("missing"); }
+  }, []);
 
   const loadGrievances = useCallback(async (token) => {
     setLoading(true); setLoadError("");
@@ -468,31 +683,43 @@ function GrievLinkApp() {
     finally { setLoading(false); }
   }, []);
 
-  useEffect(() => { if (session?.token) loadGrievances(session.token); }, [session, loadGrievances]);
+  useEffect(() => { if (session) loadProfile(session); }, [session, loadProfile]);
+  useEffect(() => { if (session?.token && profile?.active) loadGrievances(session.token); }, [session, profile, loadGrievances]);
 
   if (!session) return <LoginScreen onAuth={setSession} lang={lang} setLang={setLang} />;
+  if (pState === "idle" || pState === "loading")
+    return <div className="flex min-h-screen items-center justify-center gap-2 text-sm" style={{ background: C.basalt, color: "#A9AFA6" }}><Spinner /> {t("Chargement…")}</div>;
+  if (pState === "missing")
+    return <StatusScreen title={t("Profil")} text={t("Profil introuvable. Le script SQL du lot 1 doit être exécuté dans Supabase.")} lang={lang} setLang={setLang} onLogout={logout} onReload={() => loadProfile(session)} />;
+  if (!profile.active)
+    return <StatusScreen title={t("Compte en attente d'activation")} text={t("Votre compte a été créé. Un administrateur doit l'activer avant que vous puissiez accéder à la plateforme.")} lang={lang} setLang={setLang} onLogout={logout} onReload={() => loadProfile(session)} />;
+
+  const allowed = navItems(profile.role).filter(i => i.active);
+  const current = allowed.some(i => i.key === view) ? view : "dashboard";
 
   return (
     <div className="flex min-h-screen" style={{ background: C.paper, fontFamily: "ui-sans-serif, system-ui, sans-serif" }}>
-      <Sidebar view={view} setView={setView} onLogout={() => setSession(null)} />
+      <Sidebar view={current} setView={setView} onLogout={logout} profile={profile} />
       <main className="flex-1 overflow-auto">
         <div className="flex items-center justify-between border-b px-4 py-2 sm:justify-end" style={{ borderColor: C.paperDim }}>
           <span className="text-base font-black sm:hidden" style={{ color: C.ink }}>⛰ GrievLink</span>
           <div className="flex items-center gap-3">
             <LangSwitch lang={lang} setLang={setLang} />
-            <button onClick={() => setSession(null)} className="text-xs sm:hidden" style={{ color: C.inkSoft }}>↩ {t("Se déconnecter")}</button>
+            <button onClick={logout} className="text-xs sm:hidden" style={{ color: C.inkSoft }}>↩ {t("Se déconnecter")}</button>
           </div>
         </div>
         <div className="flex gap-1 overflow-x-auto border-b px-2 py-1.5 sm:hidden" style={{ borderColor: C.paperDim }}>
-          {[["dashboard","🏠","Tableau de bord"],["new","➕","Nouvelle plainte"],["list","📋","Toutes les plaintes"]].map(([k,e,l]) => (
-            <button key={k} onClick={() => setView(k)} className="whitespace-nowrap rounded px-3 py-1.5 text-xs font-semibold" style={{ background: view === k ? C.brass : "transparent", color: view === k ? "#fff" : C.inkSoft }}>{e} {t(l)}</button>
+          {allowed.filter(i => i.key !== "search").map(i => (
+            <button key={i.key} onClick={() => setView(i.key)} className="whitespace-nowrap rounded px-3 py-1.5 text-xs font-semibold" style={{ background: current === i.key ? C.brass : "transparent", color: current === i.key ? "#fff" : C.inkSoft }}>{i.emoji} {i.label}</button>
           ))}
         </div>
         {loadError && <div className="m-6 rounded border px-4 py-3 text-sm font-semibold" style={{ borderColor: C.red, color: C.red, background: C.red + "0d" }}>{t("Impossible de charger les plaintes :")} {loadError}</div>}
         {loading && <div className="flex items-center gap-2 p-6 text-sm" style={{ color: C.inkSoft }}><Spinner /> {t("Chargement des dossiers…")}</div>}
-        {!loading && view === "dashboard" && <Dashboard grievances={grievances} setView={setView} />}
-        {!loading && view === "new" && <NewGrievanceForm token={session.token} setView={setView} onCreated={(row)=>setGrievances(prev=>[...prev,row])} />}
-        {!loading && (view === "list" || view === "search") && <ListView grievances={grievances} setView={setView} />}
+        {!loading && current === "dashboard" && <Dashboard grievances={grievances} setView={setView} />}
+        {!loading && current === "new" && <NewGrievanceForm token={session.token} setView={setView} onCreated={(row)=>setGrievances(prev=>[...prev,row])} />}
+        {!loading && (current === "list" || current === "search") && <ListView grievances={grievances} setView={setView} />}
+        {current === "account" && <AccountView session={session} profile={profile} />}
+        {current === "users" && <UsersView token={session.token} meId={session.user.id} />}
       </main>
     </div>
   );
