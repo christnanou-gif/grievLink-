@@ -4,6 +4,9 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>GrievLink — Every Voice Matters</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;800&display=swap" rel="stylesheet">
 <script src="https://cdn.tailwindcss.com"></script>
 <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
 <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
@@ -50,6 +53,15 @@ async function sbRest(path, { method = "GET", token, body } = {}) {
 }
 
 
+function parseRecoveryParams() {
+  const raw = window.location.hash.startsWith("#") ? window.location.hash.slice(1) : window.location.hash;
+  const params = new URLSearchParams(raw);
+  if (params.get("type") === "recovery" && params.get("access_token")) {
+    return params.get("access_token");
+  }
+  return null;
+}
+
 async function sbSetPassword(token, password) {
   const res = await fetch(`${SUPABASE_URL}/auth/v1/user`, {
     method: "PUT",
@@ -66,10 +78,10 @@ const DEPARTMENTS = ["Relations communautaires", "Environnement", "Santé et sé
 
 // ---- Design tokens -----------------------------------------------------
 const C = {
-  basalt: "#151A1B", basaltMid: "#1E2527", basaltLine: "#2C3537",
-  paper: "#F5F2E9", paperDim: "#EAE5D6", ink: "#1D211E", inkSoft: "#5B615C",
-  brass: "#B9803F", brassLight: "#D9A468",
-  blue: "#33628F", amber: "#C6912A", green: "#3B8A5C", red: "#B84438", gray: "#82877E",
+  paper: "#F5F7FA", paperDim: "#DFE4EC", ink: "#1B2430", inkSoft: "#5B6675",
+  navy: "#132A4C", navyLight: "#1F3C63", navySoft: "#4A6184",
+  primary: "#2563EB", primaryLight: "#DCE7FB", primaryDark: "#1D4ED8",
+  blue: "#2563EB", amber: "#C98A1B", green: "#167A47", red: "#C0293F", gray: "#5B6675",
 };
 
 function statusColor(status) {
@@ -87,6 +99,7 @@ function isOverdue(g) {
 const CATEGORIES = ["Emploi","Compensation","Environnement","Eau","Santé et sécurité","Bruit / poussière","Relations communautaires","Moyens de subsistance","VBG / EAS-HS","Protection de l'enfant","Autre"];
 const CHANNELS = ["Bureau communautaire","Ligne verte","Email","Boîte à suggestions","Réunion","Visite de terrain"];
 const PRIORITIES = ["Faible","Moyen","Élevé","Critique"];
+const STATUS_ORDER = ["Nouvelle","Reçue","En analyse","Investigation","Décision","Résolue","Clôturée"];
 
 
 // ---- i18n (FR / EN) : les valeurs stockées en base restent en français ----
@@ -143,7 +156,23 @@ const EN = {
 "Modifications enregistrées.":"Changes saved.","Ressources humaines":"Human resources","Juridique":"Legal","Direction":"Management",
 "Terrain":"Field operations","Chargement…":"Loading…","Profil":"Profile","Recharger":"Reload",
 
-"Reçue":"Received","En analyse":"Under review","Décision":"Decision","Résolue":"Resolved","Clôturée":"Closed"
+"Reçue":"Received","En analyse":"Under review","Décision":"Decision","Résolue":"Resolved","Clôturée":"Closed",
+"Mécanisme de Gestion des Griefs":"Grievance Redress Mechanism","Secteur Minier · Opération responsable":"Mining Sector · Responsible Operations",
+"Site / Projet":"Site / Project","Identifiant":"Username","Votre identifiant":"Your username","Votre mot de passe":"Your password",
+"Votre nom de site ou projet":"Your site or project name","Secteur Minier · Gestion Responsable":"Mining Sector · Responsible Management",
+"Supabase connecté":"Supabase connected","Connexion Supabase impossible":"Cannot reach Supabase","Vérification…":"Checking…",
+"Retour":"Back","Détails de la plainte":"Grievance details","Journal des actions":"Action log","Ajouter un commentaire":"Add a comment",
+"Écrire un commentaire ou une mise à jour…":"Write a comment or an update…","Ajouter":"Add","Aucune action enregistrée pour l'instant.":"No action recorded yet.",
+"Attribution":"Assignment","Agent responsable":"Responsible agent","Non assigné":"Unassigned","Attribuer":"Assign",
+"Changer le statut":"Change status","Mettre à jour":"Update","Escalade":"Escalation","Signaler une escalade":"Flag an escalation",
+"Dossier escaladé":"Case escalated","Escaladé le":"Escalated on","Retour d'information au plaignant":"Feedback to the complainant",
+"Satisfaction du plaignant":"Complainant satisfaction","Satisfait":"Satisfied","Neutre":"Neutral","Insatisfait":"Dissatisfied",
+"Contenu du retour donné":"Content of the feedback given","Date du retour":"Feedback date","Enregistrer le retour":"Save feedback",
+"Retour enregistré le":"Feedback recorded on","Aucun retour enregistré pour l'instant.":"No feedback recorded yet.",
+"Informations générales":"General information","Plaignant":"Complainant","Anonyme":"Anonymous","Non renseigné":"Not provided",
+"changement de statut":"status change","commentaire":"comment","escalade":"escalation","attribution":"assignment","retour d'information":"feedback",
+"vers":"to","Date limite":"Deadline","En retard":"Overdue","Délai respecté":"On time","Pas de délai fixé":"No deadline set",
+"Historique":"History","Chargement du journal…":"Loading log…"
 };
 const savedLang = (() => { try { return localStorage.getItem("gl_lang"); } catch(e) { return null; } })();
 let LANG = savedLang || ((navigator.language || "fr").toLowerCase().startsWith("en") ? "en" : "fr");
@@ -151,10 +180,10 @@ const t = (fr) => (LANG === "en" ? (EN[fr] ?? fr) : fr);
 
 function LangSwitch({ lang, setLang, dark }) {
   const base = "px-2.5 py-1 text-xs font-bold tracking-wide";
-  const on = { background: C.brass, color: "#fff" };
+  const on = { background: C.primary, color: "#fff" };
   const off = { background: "transparent", color: dark ? "#A9AFA6" : C.inkSoft };
   return (
-    <div className="inline-flex overflow-hidden rounded border" style={{ borderColor: dark ? C.basaltLine : C.paperDim }}>
+    <div className="inline-flex overflow-hidden rounded border" style={{ borderColor: C.paperDim }}>
       <button className={base} style={lang === "fr" ? on : off} onClick={() => setLang("fr")}>FR</button>
       <button className={base} style={lang === "en" ? on : off} onClick={() => setLang("en")}>EN</button>
     </div>
@@ -173,35 +202,73 @@ function StatusBadge({ status }) {
   );
 }
 function CaseTag({ id }) {
-  return <span className="inline-block rounded border px-2 py-0.5 font-mono text-xs tracking-widest" style={{ borderColor: C.brass, color: C.brass }}>{id || "—"}</span>;
+  return <span className="inline-block rounded border px-2 py-0.5 font-mono text-xs tracking-widest" style={{ borderColor: C.primary, color: C.primary }}>{id || "—"}</span>;
 }
 function Topo() {
   return (
     <svg className="absolute inset-0 h-full w-full opacity-[0.07]" viewBox="0 0 400 400" preserveAspectRatio="none">
       {[60,100,140,180,220,260,300,340].map((r,i) => (
-        <ellipse key={i} cx={120+i*8} cy={200-i*6} rx={r} ry={r*0.6} fill="none" stroke={C.brassLight} strokeWidth="1" />
+        <ellipse key={i} cx={120+i*8} cy={200-i*6} rx={r} ry={r*0.6} fill="none" stroke={C.primaryLight} strokeWidth="1" />
       ))}
     </svg>
   );
 }
 
+function useSupabaseStatus() {
+  const [status, setStatus] = useState("checking"); // checking | ok | down
+  useEffect(() => {
+    let alive = true;
+    fetch(`${SUPABASE_URL}/auth/v1/health`, { headers: { apikey: SUPABASE_KEY } })
+      .then((r) => { if (alive) setStatus(r.ok || r.status < 500 ? "ok" : "down"); })
+      .catch(() => { if (alive) setStatus("down"); });
+    return () => { alive = false; };
+  }, []);
+  return status;
+}
+
+function SupabaseStatusPill({ status }) {
+  const map = {
+    checking: { c: C.inkSoft, bg: "#F1F3F6", dot: C.inkSoft, label: t("Vérification…") },
+    ok: { c: "#167A47", bg: "#E7F6EE", dot: "#167A47", label: t("Supabase connecté") },
+    down: { c: C.red, bg: "#FBEAED", dot: C.red, label: t("Connexion Supabase impossible") },
+  };
+  const s = map[status];
+  return (
+    <div className="flex items-center justify-center gap-2 rounded-full border px-4 py-2 text-xs font-semibold" style={{ background: s.bg, borderColor: s.c + "33", color: s.c }}>
+      <span className="h-2 w-2 rounded-full" style={{ background: s.dot }} />{s.label}
+    </div>
+  );
+}
+
+function Wordmark({ size = "text-3xl" }) {
+  return (
+    <div className="flex flex-col items-center">
+      <span className="mb-3 flex h-16 w-16 items-center justify-center rounded-2xl text-3xl shadow-md" style={{ background: `linear-gradient(135deg, ${C.navy}, ${C.primary})` }}>⛏</span>
+      <h1 className={size + " font-extrabold tracking-wide"} style={{ fontFamily: "'Playfair Display', serif", fontVariant: "small-caps", color: C.navy }}>GrievLink</h1>
+    </div>
+  );
+}
+
 function LoginScreen({ onAuth, lang, setLang }) {
   const [mode, setMode] = useState("signin");
+  const [site, setSite] = useState(() => { try { return localStorage.getItem("gl_site") || ""; } catch(e) { return ""; } });
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [info, setInfo] = useState("");
+  const sbStatus = useSupabaseStatus();
 
   const submit = async () => {
     setError(""); setInfo("");
     const cleanEmail = email.trim();
     if (!cleanEmail || !cleanEmail.includes("@")) { setError(t("Entrez une adresse e-mail valide.")); return; }
     if (password.length < 6) { setError(t("Le mot de passe doit contenir au moins 6 caractères.")); return; }
+    try { localStorage.setItem("gl_site", site); } catch(e) {}
     setLoading(true);
     try {
       if (mode === "signup") {
-        const data = await sbAuth("signup", { email, password });
+        const data = await sbAuth("signup", { email, password, data: { site } });
         if (data.access_token) { onAuth({ token: data.access_token, user: data.user }); }
         else { setInfo(t("Compte créé. Vérifiez votre boîte mail si la confirmation est activée, sinon reconnectez-vous.")); setMode("signin"); }
       } else {
@@ -212,37 +279,108 @@ function LoginScreen({ onAuth, lang, setLang }) {
     finally { setLoading(false); }
   };
 
+  const flagBtn = (code, flag, activeLang) => (
+    <button onClick={() => setLang(code)}
+      className="flex h-9 w-16 items-center justify-center gap-1 rounded-full border text-base transition"
+      style={{ background: lang === code ? C.navy : "#fff", borderColor: lang === code ? C.navy : C.paperDim }}>
+      {flag}
+    </button>
+  );
+
   return (
-    <div className="relative flex min-h-screen items-center justify-center overflow-hidden" style={{ background: C.basalt }}>
+    <div className="relative flex min-h-screen items-center justify-center overflow-hidden px-4 py-8" style={{ background: "linear-gradient(160deg, #DCEBFF 0%, #EEF3FA 55%, #FFFFFF 100%)" }}>
       <Topo />
-      <div className="absolute right-4 top-4 z-20"><LangSwitch lang={lang} setLang={setLang} dark /></div>
-      <div className="relative z-10 w-full max-w-sm px-6">
-        <div className="mb-8 text-center">
-          <div className="mb-3 flex items-center justify-center gap-2">
-            <span style={{ color: C.brassLight }}>⛰</span>
-            <span className="font-mono text-[11px] tracking-[0.3em]" style={{ color: C.brassLight }}>GRM · ESG · SEP</span>
+      <div className="relative z-10 w-full max-w-sm overflow-hidden rounded-2xl border shadow-xl" style={{ background: "#fff", borderColor: C.paperDim }}>
+        <div className="px-6 pt-7 pb-5 text-center">
+          <Wordmark />
+          <p className="mt-2 text-sm" style={{ color: C.inkSoft }}>
+            {site ? site + " · " : ""}{t("Secteur Minier · Gestion Responsable")}
+          </p>
+
+          <div className="mt-4 rounded-xl px-4 py-3" style={{ background: C.primaryLight }}>
+            <p className="text-sm font-bold" style={{ color: C.navy }}>{t("Mécanisme de Gestion des Griefs")}</p>
+            <p className="text-xs" style={{ color: C.navySoft }}>{t("Secteur Minier · Opération responsable")}</p>
           </div>
-          <h1 className="text-4xl font-black tracking-tight" style={{ color: C.paper }}>GrievLink</h1>
-          <p className="mt-2 text-sm italic" style={{ color: "#A9AFA6" }}>{t("Chaque voix compte.")}</p>
+
+          <div className="mt-5 flex items-center justify-center gap-3">
+            {flagBtn("fr", "🇫🇷")}
+            {flagBtn("en", "🇬🇧")}
+          </div>
+
+          <div className="mt-5 flex items-center gap-3">
+            <span className="h-px flex-1" style={{ background: C.paperDim }} />
+            <span className="h-2 w-2 rotate-45" style={{ background: C.amber }} />
+            <span className="h-px flex-1" style={{ background: C.paperDim }} />
+          </div>
         </div>
-        <div className="rounded-lg border p-6" style={{ background: C.basaltMid, borderColor: C.basaltLine }}>
-          <label className="mb-1 block text-xs font-semibold uppercase tracking-wider" style={{ color: "#8E948B" }}>{t("E-mail")}</label>
-          <input value={email} onChange={(e)=>setEmail(e.target.value)} placeholder="vous@organisation.org"
-            className="mb-4 w-full rounded border bg-transparent px-3 py-2 text-sm outline-none" style={{ borderColor: C.basaltLine, color: C.paper }} />
-          <label className="mb-1 block text-xs font-semibold uppercase tracking-wider" style={{ color: "#8E948B" }}>{t("Mot de passe")}</label>
-          <input type="password" value={password} onChange={(e)=>setPassword(e.target.value)} placeholder={t("6 caractères minimum")}
-            className="mb-2 w-full rounded border bg-transparent px-3 py-2 text-sm outline-none" style={{ borderColor: C.basaltLine, color: C.paper }} />
-          {error && <p className="mb-3 mt-2 text-xs font-semibold" style={{ color: "#E08A7D" }}>{error}</p>}
-          {info && <p className="mb-3 mt-2 text-xs font-semibold" style={{ color: C.brassLight }}>{info}</p>}
-          <button onClick={submit} disabled={loading} className="mt-4 flex w-full items-center justify-center gap-2 rounded py-2.5 text-sm font-bold uppercase tracking-wide transition disabled:opacity-60" style={{ background: C.brass, color: C.basalt }}>
-            {loading && <Spinner />}{t(mode === "signup" ? "Créer le compte" : "Se connecter")}
+
+        <div className="px-6 pb-6">
+          <label className="mb-1 block text-xs font-semibold uppercase tracking-wider" style={{ color: C.inkSoft }}>{t("Site / Projet")}</label>
+          <input value={site} onChange={(e)=>setSite(e.target.value)} placeholder={t("Votre nom de site ou projet")}
+            className="mb-4 w-full rounded-md border shadow-sm px-3 py-2.5 text-sm outline-none" style={{ borderColor: C.primary, color: C.ink, background: "#fff" }} />
+
+          <label className="mb-1 block text-xs font-semibold uppercase tracking-wider" style={{ color: C.inkSoft }}>{t("Identifiant")}</label>
+          <input value={email} onChange={(e)=>setEmail(e.target.value)} placeholder={t("Votre identifiant")}
+            className="mb-4 w-full rounded-md border shadow-sm px-3 py-2.5 text-sm outline-none" style={{ borderColor: C.paperDim, color: C.ink, background: C.paper }} />
+
+          <label className="mb-1 block text-xs font-semibold uppercase tracking-wider" style={{ color: C.inkSoft }}>{t("Mot de passe")}</label>
+          <input type="password" value={password} onChange={(e)=>setPassword(e.target.value)} placeholder={t("Votre mot de passe")}
+            className="mb-2 w-full rounded-md border shadow-sm px-3 py-2.5 text-sm outline-none" style={{ borderColor: C.paperDim, color: C.ink, background: C.paper }} />
+
+          {error && <p className="mb-3 mt-2 text-xs font-semibold" style={{ color: C.red }}>{error}</p>}
+          {info && <p className="mb-3 mt-2 text-xs font-semibold" style={{ color: C.primary }}>{info}</p>}
+
+          <button onClick={submit} disabled={loading} className="mt-2 flex w-full items-center justify-center gap-2 rounded-md py-3 text-sm font-bold shadow-sm transition disabled:opacity-60" style={{ background: `linear-gradient(135deg, ${C.navy}, ${C.navyLight})`, color: "#fff" }}>
+            {loading ? <Spinner /> : "🔒"} {t(mode === "signup" ? "Créer le compte" : "Se connecter")}
           </button>
           <button onClick={() => { setMode(mode === "signup" ? "signin" : "signup"); setError(""); setInfo(""); }}
-            className="mt-3 w-full text-center text-xs underline underline-offset-2" style={{ color: "#8E948B" }}>
+            className="mt-3 w-full text-center text-xs underline underline-offset-2" style={{ color: C.inkSoft }}>
             {t(mode === "signup" ? "J'ai déjà un compte — me connecter" : "Pas encore de compte — en créer un")}
           </button>
+
+          <div className="mt-4"><SupabaseStatusPill status={sbStatus} /></div>
         </div>
-        <p className="mt-6 text-center text-[11px]" style={{ color: "#6C716A" }}>{t("Relier les communautés. Résoudre les plaintes.")}</p>
+      </div>
+    </div>
+  );
+}
+
+function RecoveryScreen({ accessToken, onDone, lang, setLang }) {
+  const [pw, setPw] = useState("");
+  const [pw2, setPw2] = useState("");
+  const [msg, setMsg] = useState(null);
+  const [saving, setSaving] = useState(false);
+
+  const submit = async () => {
+    setMsg(null);
+    if (pw.length < 6) { setMsg({ k: "err", m: t("Le mot de passe doit contenir au moins 6 caractères.") }); return; }
+    if (pw !== pw2) { setMsg({ k: "err", m: t("Les mots de passe ne correspondent pas.") }); return; }
+    setSaving(true);
+    try {
+      await sbSetPassword(accessToken, pw);
+      setMsg({ k: "ok", m: t("Mot de passe modifié avec succès.") });
+      setTimeout(() => { window.location.hash = ""; onDone(); }, 1500);
+    } catch (e) { setMsg({ k: "err", m: e.message }); }
+    finally { setSaving(false); }
+  };
+
+  return (
+    <div className="relative flex min-h-screen items-center justify-center overflow-hidden px-6" style={{ background: "linear-gradient(160deg, #EAF1FF 0%, #F5F7FB 55%, #FFFFFF 100%)" }}>
+      <div className="absolute right-4 top-4 z-20"><LangSwitch lang={lang} setLang={setLang} /></div>
+      <div className="w-full max-w-sm overflow-hidden rounded-md border shadow-md" style={{ background: "#fff", borderColor: C.paperDim }}>
+        <div className="h-1.5 w-full" style={{ background: C.navy }} />
+        <div className="p-6">
+          <h1 className="mb-1 text-lg font-bold" style={{ color: C.ink }}>{t("Changer le mot de passe")}</h1>
+          <p className="mb-4 text-xs" style={{ color: C.inkSoft }}>GrievLink</p>
+          {msg && <Notice kind={msg.k}>{msg.m}</Notice>}
+          <div className="space-y-4">
+            <Field label={t("Nouveau mot de passe")}><input type="password" value={pw} onChange={(e)=>setPw(e.target.value)} className={inputCls} style={inputStyle} /></Field>
+            <Field label={t("Confirmer le mot de passe")}><input type="password" value={pw2} onChange={(e)=>setPw2(e.target.value)} className={inputCls} style={inputStyle} /></Field>
+            <button onClick={submit} disabled={saving} className="flex w-full items-center justify-center gap-2 rounded-md py-2.5 text-sm font-bold text-white disabled:opacity-60" style={{ background: C.primary }}>
+              {saving && <Spinner />}{t("Enregistrer")}
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   );
@@ -265,25 +403,28 @@ function navItems(role) {
 function Sidebar({ view, setView, onLogout, profile }) {
   const items = navItems(profile.role);
   return (
-    <div className="hidden w-60 shrink-0 flex-col border-r p-4 sm:flex" style={{ background: C.basalt, borderColor: C.basaltLine }}>
-      <div className="mb-6 flex items-center gap-2 px-2">
-        <span style={{ color: C.brassLight }}>⛰</span>
-        <span className="text-lg font-black tracking-tight" style={{ color: C.paper }}>GrievLink</span>
+    <div className="hidden w-60 shrink-0 flex-col p-4 sm:flex" style={{ background: C.navy }}>
+      <div className="mb-6 flex items-center gap-2 border-b px-2 pb-4" style={{ borderColor: C.navyLight }}>
+        <span className="flex h-8 w-8 items-center justify-center rounded-md text-base" style={{ background: C.navyLight }}>⛏</span>
+        <div>
+          <span className="block text-base font-extrabold tracking-wide text-white" style={{ fontFamily: "'Playfair Display', serif", fontVariant: "small-caps" }}>GrievLink</span>
+          <span className="block text-[10px] uppercase tracking-[0.2em]" style={{ color: C.navySoft }}>GRM · ESG</span>
+        </div>
       </div>
-      <nav className="flex flex-1 flex-col gap-1">
+      <nav className="flex flex-1 flex-col gap-0.5">
         {items.map(({ key, label, emoji, active }) => (
           <button key={key} disabled={!active} onClick={() => active && setView(key)}
-            className="flex items-center justify-between rounded px-3 py-2 text-sm transition disabled:opacity-40"
-            style={{ background: view === key ? C.basaltMid : "transparent", color: view === key ? C.brassLight : "#C7CBC0" }}>
-            <span className="flex items-center gap-2.5"><span>{emoji}</span>{label}</span>
-            {!active && <span className="rounded bg-white/5 px-1.5 py-0.5 text-[9px] tracking-wide" style={{ color: "#7A7F76" }}>V2</span>}
+            className="flex items-center justify-between rounded-sm px-3 py-2 text-sm font-medium transition disabled:opacity-30"
+            style={{ background: view === key ? C.navyLight : "transparent", color: view === key ? "#fff" : "#B7C2D4", borderLeft: view === key ? `3px solid ${C.primary}` : "3px solid transparent" }}>
+            <span className="flex items-center gap-2.5"><span className="text-[13px] opacity-80">{emoji}</span>{label}</span>
+            {!active && <span className="rounded px-1.5 py-0.5 text-[9px] tracking-wide" style={{ background: C.navyLight, color: C.navySoft }}>V2</span>}
           </button>
         ))}
       </nav>
-      <div className="mt-4 border-t px-2 pt-3" style={{ borderColor: C.basaltLine }}>
-        <p className="truncate text-xs font-semibold" style={{ color: C.paper }}>{profile.full_name || profile.email}</p>
-        <p className="text-[11px]" style={{ color: C.brassLight }}>{t(ROLE_LABEL[profile.role])}</p>
-        <button onClick={onLogout} className="mt-2 flex items-center gap-2 py-1 text-xs" style={{ color: "#7A7F76" }}>↩ {t("Se déconnecter")}</button>
+      <div className="mt-4 border-t px-2 pt-3" style={{ borderColor: C.navyLight }}>
+        <p className="truncate text-xs font-semibold text-white">{profile.full_name || profile.email}</p>
+        <p className="text-[11px] font-semibold" style={{ color: "#8FB1E8" }}>{t(ROLE_LABEL[profile.role])}</p>
+        <button onClick={onLogout} className="mt-2 flex items-center gap-2 py-1 text-xs" style={{ color: C.navySoft }}>↩ {t("Se déconnecter")}</button>
       </div>
     </div>
   );
@@ -315,20 +456,20 @@ function AccountView({ session, profile }) {
   return (
     <div className="max-w-xl p-6 sm:p-8">
       <h2 className="mb-6 text-2xl font-black tracking-tight" style={{ color: C.ink }}>{t("Mon compte")}</h2>
-      <section className="mb-6 rounded-lg border p-5" style={{ borderColor: C.paperDim, background: "#fff" }}>
-        <h3 className="mb-2 text-sm font-bold" style={{ color: C.brass }}>{t("Informations du compte")}</h3>
+      <section className="mb-6 rounded-md border shadow-sm p-5" style={{ borderColor: C.paperDim, background: "#fff" }}>
+        <h3 className="mb-2 text-sm font-bold" style={{ color: C.primary }}>{t("Informations du compte")}</h3>
         {row(t("Nom complet"), profile.full_name)}
         {row(t("E-mail"), profile.email)}
         {row(t("Rôle"), t(ROLE_LABEL[profile.role]))}
         {row(t("Département"), profile.department && t(profile.department))}
       </section>
-      <section className="rounded-lg border p-5" style={{ borderColor: C.paperDim, background: "#fff" }}>
-        <h3 className="mb-4 text-sm font-bold" style={{ color: C.brass }}>{t("Changer le mot de passe")}</h3>
+      <section className="rounded-md border shadow-sm p-5" style={{ borderColor: C.paperDim, background: "#fff" }}>
+        <h3 className="mb-4 text-sm font-bold" style={{ color: C.primary }}>{t("Changer le mot de passe")}</h3>
         {msg && <Notice kind={msg.k}>{msg.m}</Notice>}
         <div className="space-y-4">
           <Field label={t("Nouveau mot de passe")}><input type="password" value={pw} onChange={(e)=>setPw(e.target.value)} className={inputCls} style={inputStyle} /></Field>
           <Field label={t("Confirmer le mot de passe")}><input type="password" value={pw2} onChange={(e)=>setPw2(e.target.value)} className={inputCls} style={inputStyle} /></Field>
-          <button onClick={change} disabled={saving} className="flex items-center gap-2 rounded px-5 py-2 text-sm font-bold text-white disabled:opacity-60" style={{ background: C.brass }}>{saving && <Spinner />}{t("Changer le mot de passe")}</button>
+          <button onClick={change} disabled={saving} className="flex items-center gap-2 rounded px-5 py-2 text-sm font-bold text-white disabled:opacity-60" style={{ background: C.primary }}>{saving && <Spinner />}{t("Changer le mot de passe")}</button>
         </div>
       </section>
     </div>
@@ -369,9 +510,9 @@ function UserRow({ u, token, isSelf, onSaved }) {
     finally { setSaving(false); }
   };
   return (
-    <div className="mb-3 rounded-lg border p-4" style={{ borderColor: C.paperDim, background: "#fff" }}>
+    <div className="mb-3 rounded-md border shadow-sm p-4" style={{ borderColor: C.paperDim, background: "#fff" }}>
       <div className="mb-3 flex items-center justify-between">
-        <span className="truncate text-sm font-bold" style={{ color: C.ink }}>{u.email}{isSelf && <span className="ml-2 text-xs font-semibold" style={{ color: C.brass }}>({t("Vous")})</span>}</span>
+        <span className="truncate text-sm font-bold" style={{ color: C.ink }}>{u.email}{isSelf && <span className="ml-2 text-xs font-semibold" style={{ color: C.primary }}>({t("Vous")})</span>}</span>
         <span className="rounded-full px-2 py-0.5 text-[11px] font-semibold" style={{ background: (u.active ? C.green : C.amber) + "1a", color: u.active ? C.green : C.amber }}>{u.active ? t("Compte actif") : t("En attente")}</span>
       </div>
       <div className="grid gap-3 sm:grid-cols-3">
@@ -382,7 +523,7 @@ function UserRow({ u, token, isSelf, onSaved }) {
         <label className="flex items-center gap-2 text-sm" style={{ color: C.ink }}>
           <input type="checkbox" disabled={isSelf} checked={active} onChange={(e)=>setActive(e.target.checked)} /> {t("Compte actif")}
         </label>
-        <button onClick={save} disabled={saving} className="flex items-center gap-2 rounded px-4 py-1.5 text-xs font-bold text-white disabled:opacity-60" style={{ background: C.brass }}>{saving && <Spinner />}{t("Enregistrer")}</button>
+        <button onClick={save} disabled={saving} className="flex items-center gap-2 rounded px-4 py-1.5 text-xs font-bold text-white disabled:opacity-60" style={{ background: C.primary }}>{saving && <Spinner />}{t("Enregistrer")}</button>
       </div>
       {msg && <p className="mt-2 text-xs font-semibold" style={{ color: msg.k === "ok" ? C.green : C.red }}>{msg.m}</p>}
     </div>
@@ -423,8 +564,8 @@ function UsersView({ token, meId }) {
     <div className="p-6 sm:p-8">
       <h2 className="text-2xl font-black tracking-tight" style={{ color: C.ink }}>{t("Gestion des utilisateurs")}</h2>
       <p className="mb-6 text-sm" style={{ color: C.inkSoft }}>{t("Attribuez les rôles et activez les comptes")}</p>
-      <section className="mb-8 rounded-lg border p-5" style={{ borderColor: C.paperDim, background: "#fff" }}>
-        <h3 className="mb-4 text-sm font-bold" style={{ color: C.brass }}>{t("Ajouter un utilisateur")}</h3>
+      <section className="mb-8 rounded-md border shadow-sm p-5" style={{ borderColor: C.paperDim, background: "#fff" }}>
+        <h3 className="mb-4 text-sm font-bold" style={{ color: C.primary }}>{t("Ajouter un utilisateur")}</h3>
         {msg && <Notice kind={msg.k}>{msg.m}</Notice>}
         <div className="grid gap-3 sm:grid-cols-3">
           <Field label={t("E-mail")}><input value={f.email} onChange={(e)=>setF({ ...f, email: e.target.value })} className={inputCls} style={inputStyle} /></Field>
@@ -432,7 +573,7 @@ function UsersView({ token, meId }) {
           <Field label={t("Nom complet")}><input value={f.name} onChange={(e)=>setF({ ...f, name: e.target.value })} className={inputCls} style={inputStyle} /></Field>
           <RoleFields role={f.role} setRole={(v)=>setF({ ...f, role: v })} dept={f.dept} setDept={(v)=>setF({ ...f, dept: v })} />
         </div>
-        <button onClick={add} disabled={adding} className="mt-4 flex items-center gap-2 rounded px-5 py-2 text-sm font-bold text-white disabled:opacity-60" style={{ background: C.brass }}>{adding && <Spinner />}{t("Créer l'utilisateur")}</button>
+        <button onClick={add} disabled={adding} className="mt-4 flex items-center gap-2 rounded px-5 py-2 text-sm font-bold text-white disabled:opacity-60" style={{ background: C.primary }}>{adding && <Spinner />}{t("Créer l'utilisateur")}</button>
       </section>
       {error && <Notice kind="err">{error}</Notice>}
       {loading ? <div className="flex items-center gap-2 text-sm" style={{ color: C.inkSoft }}><Spinner /> {t("Chargement…")}</div>
@@ -443,19 +584,22 @@ function UsersView({ token, meId }) {
 
 function StatusScreen({ title, text, lang, setLang, onLogout, onReload }) {
   return (
-    <div className="relative flex min-h-screen items-center justify-center px-6" style={{ background: C.basalt }}>
-      <div className="absolute right-4 top-4"><LangSwitch lang={lang} setLang={setLang} dark /></div>
-      <div className="max-w-sm rounded-lg border p-6 text-center" style={{ background: C.basaltMid, borderColor: C.basaltLine }}>
-        <p className="mb-2 text-lg font-black" style={{ color: C.paper }}>{title}</p>
-        <p className="mb-5 text-sm" style={{ color: "#A9AFA6" }}>{text}</p>
-        {onReload && <button onClick={onReload} className="mb-3 w-full rounded py-2 text-sm font-bold" style={{ background: C.brass, color: C.basalt }}>{t("Recharger")}</button>}
-        <button onClick={onLogout} className="text-xs underline" style={{ color: "#8E948B" }}>{t("Se déconnecter")}</button>
+    <div className="relative flex min-h-screen items-center justify-center px-6" style={{ background: "linear-gradient(160deg, #EAF1FF 0%, #F5F7FB 55%, #FFFFFF 100%)" }}>
+      <div className="absolute right-4 top-4"><LangSwitch lang={lang} setLang={setLang} /></div>
+      <div className="max-w-sm overflow-hidden rounded-md border text-center shadow-md" style={{ background: "#fff", borderColor: C.paperDim }}>
+        <div className="h-1.5 w-full" style={{ background: C.navy }} />
+        <div className="p-6">
+        <p className="mb-2 text-lg font-black" style={{ color: C.ink }}>{title}</p>
+        <p className="mb-5 text-sm" style={{ color: C.inkSoft }}>{text}</p>
+        {onReload && <button onClick={onReload} className="mb-3 w-full rounded-md py-2 text-sm font-bold" style={{ background: C.primary, color: "#fff" }}>{t("Recharger")}</button>}
+        <button onClick={onLogout} className="text-xs underline" style={{ color: C.inkSoft }}>{t("Se déconnecter")}</button>
+        </div>
       </div>
     </div>
   );
 }
 
-function Dashboard({ grievances, setView }) {
+function Dashboard({ grievances, setView, onOpen }) {
   const total = grievances.length;
   const resolved = grievances.filter(g => g.status === "Résolue" || g.status === "Clôturée").length;
   const overdue = grievances.filter(isOverdue).length;
@@ -473,35 +617,35 @@ function Dashboard({ grievances, setView }) {
           <h2 className="text-2xl font-black tracking-tight" style={{ color: C.ink }}>{t("Tableau de bord")}</h2>
           <p className="text-sm" style={{ color: C.inkSoft }}>{t("Données en direct depuis Supabase")}</p>
         </div>
-        <button onClick={() => setView("new")} className="flex items-center gap-2 rounded px-4 py-2 text-sm font-bold text-white" style={{ background: C.brass }}>➕ {t("Nouvelle plainte")}</button>
+        <button onClick={() => setView("new")} className="flex items-center gap-2 rounded px-4 py-2 text-sm font-bold text-white" style={{ background: C.primary }}>➕ {t("Nouvelle plainte")}</button>
       </div>
       <div className="mb-8 grid grid-cols-2 gap-4 lg:grid-cols-4">
         {stats.map(({ label, value, color, emoji }) => (
-          <div key={label} className="rounded-lg border p-4" style={{ borderColor: C.paperDim, background: "#fff" }}>
-            <div className="mb-3 flex items-center justify-between">
+          <div key={label} className="rounded-md border shadow-sm p-4" style={{ borderColor: C.paperDim, background: "#fff", borderTop: `3px solid ${color}` }}>
+            <div className="mb-2 flex items-center justify-between">
               <span className="text-xs font-semibold uppercase tracking-wide" style={{ color: C.inkSoft }}>{label}</span>
-              <span>{emoji}</span>
+              <span className="text-xs opacity-60">{emoji}</span>
             </div>
-            <span className="text-3xl font-black" style={{ color }}>{value}</span>
+            <span className="text-3xl font-bold" style={{ color: C.ink }}>{value}</span>
           </div>
         ))}
       </div>
-      <div className="rounded-lg border" style={{ borderColor: C.paperDim, background: "#fff" }}>
+      <div className="rounded-md border shadow-sm" style={{ borderColor: C.paperDim, background: "#fff" }}>
         <div className="flex items-center justify-between border-b px-5 py-3" style={{ borderColor: C.paperDim }}>
           <h3 className="text-sm font-bold" style={{ color: C.ink }}>{t("Dossiers récents")}</h3>
-          <button onClick={() => setView("list")} className="flex items-center gap-1 text-xs font-semibold" style={{ color: C.brass }}>{t("Voir tout")} ›</button>
+          <button onClick={() => setView("list")} className="flex items-center gap-1 text-xs font-semibold" style={{ color: C.primary }}>{t("Voir tout")} ›</button>
         </div>
         <div>
           {grievances.length === 0 && <p className="px-5 py-8 text-center text-sm" style={{ color: C.inkSoft }}>{t("Aucune plainte enregistrée pour l'instant.")}</p>}
           {grievances.slice(-5).reverse().map(g => (
-            <div key={g.id} className="flex items-center justify-between border-b px-5 py-3 text-sm last:border-0" style={{ borderColor: C.paperDim }}>
+            <button key={g.id} onClick={() => onOpen(g)} className="flex w-full items-center justify-between border-b px-5 py-3 text-left text-sm last:border-0 hover:bg-black/[0.02]" style={{ borderColor: C.paperDim }}>
               <div className="flex items-center gap-3">
                 <CaseTag id={g.case_number} />
                 <span style={{ color: C.ink }}>{g.village || "—"} · {t(g.category)}</span>
                 {g.category === "VBG / EAS-HS" && <span style={{ color: C.red }}>🔒</span>}
               </div>
               <StatusBadge status={g.status} />
-            </div>
+            </button>
           ))}
         </div>
       </div>
@@ -509,7 +653,7 @@ function Dashboard({ grievances, setView }) {
   );
 }
 
-function ListView({ grievances, setView }) {
+function ListView({ grievances, setView, onOpen }) {
   const [q, setQ] = useState("");
   const filtered = useMemo(() => {
     const term = q.toLowerCase();
@@ -519,20 +663,20 @@ function ListView({ grievances, setView }) {
     <div className="p-6 sm:p-8">
       <div className="mb-6 flex items-center justify-between">
         <h2 className="text-2xl font-black tracking-tight" style={{ color: C.ink }}>{t("Toutes les plaintes")}</h2>
-        <button onClick={() => setView("new")} className="flex items-center gap-2 rounded px-4 py-2 text-sm font-bold text-white" style={{ background: C.brass }}>➕ {t("Nouvelle plainte")}</button>
+        <button onClick={() => setView("new")} className="flex items-center gap-2 rounded px-4 py-2 text-sm font-bold text-white" style={{ background: C.primary }}>➕ {t("Nouvelle plainte")}</button>
       </div>
       <div className="relative mb-4 max-w-sm">
         <input value={q} onChange={(e)=>setQ(e.target.value)} placeholder={"🔎 " + t("N° dossier, village, catégorie, statut…")}
           className="w-full rounded border py-2 px-3 text-sm outline-none" style={{ borderColor: C.paperDim }} />
       </div>
-      <div className="overflow-hidden rounded-lg border" style={{ borderColor: C.paperDim, background: "#fff" }}>
+      <div className="overflow-hidden rounded-md border shadow-sm" style={{ borderColor: C.paperDim, background: "#fff" }}>
         <table className="w-full text-left text-sm">
           <thead><tr style={{ background: C.paperDim }}>
             {["Dossier","Date","Village","Catégorie","Priorité","Statut"].map(h => <th key={h} className="px-4 py-2 text-xs font-semibold uppercase tracking-wide" style={{ color: C.inkSoft }}>{t(h)}</th>)}
           </tr></thead>
           <tbody>
             {filtered.map(g => (
-              <tr key={g.id} className="border-t" style={{ borderColor: C.paperDim }}>
+              <tr key={g.id} onClick={() => onOpen(g)} className="cursor-pointer border-t hover:bg-black/[0.02]" style={{ borderColor: C.paperDim }}>
                 <td className="px-4 py-2.5"><CaseTag id={g.case_number} /></td>
                 <td className="px-4 py-2.5" style={{ color: C.ink }}>{g.date_received}</td>
                 <td className="px-4 py-2.5" style={{ color: C.ink }}>{g.village || "—"}</td>
@@ -549,6 +693,205 @@ function ListView({ grievances, setView }) {
   );
 }
 
+function ActionRow({ a }) {
+  const typeLabel = { "changement de statut": "🔄", "commentaire": "💬", "escalade": "🚨", "attribution": "👤", "retour d'information": "📣" };
+  return (
+    <div className="border-b py-3 text-sm last:border-0" style={{ borderColor: C.paperDim }}>
+      <div className="flex items-center justify-between">
+        <span className="font-semibold" style={{ color: C.ink }}>{typeLabel[a.action_type] || "•"} {a.author?.full_name || a.author?.email || "—"}</span>
+        <span className="text-xs" style={{ color: C.inkSoft }}>{new Date(a.created_at).toLocaleString()}</span>
+      </div>
+      {a.comment && <p className="mt-1" style={{ color: C.inkSoft }}>{a.comment}</p>}
+    </div>
+  );
+}
+
+function GrievanceDetail({ grievance, token, profile, users, setView, onUpdated }) {
+  const [g, setG] = useState(grievance);
+  const [actions, setActions] = useState([]);
+  const [loadingActions, setLoadingActions] = useState(true);
+  const [comment, setComment] = useState("");
+  const [savingComment, setSavingComment] = useState(false);
+  const [status, setStatus] = useState(grievance.status);
+  const [savingStatus, setSavingStatus] = useState(false);
+  const [assignee, setAssignee] = useState(grievance.assigned_to || "");
+  const [savingAssign, setSavingAssign] = useState(false);
+  const [escalating, setEscalating] = useState(false);
+  const [fbText, setFbText] = useState(grievance.feedback_text || "");
+  const [fbSat, setFbSat] = useState(grievance.feedback_satisfaction || "Satisfait");
+  const [fbDate, setFbDate] = useState(grievance.feedback_date || new Date().toISOString().slice(0,10));
+  const [savingFb, setSavingFb] = useState(false);
+  const [err, setErr] = useState("");
+  const canManage = profile.role === "admin" || profile.role === "manager";
+
+  const loadActions = useCallback(async () => {
+    setLoadingActions(true);
+    try {
+      const rows = await sbRest(`actions?select=*,author:author_id(full_name,email)&grievance_id=eq.${g.id}&order=created_at.asc`, { token });
+      setActions(rows);
+    } catch (e) { /* silencieux : le journal n'est pas critique */ }
+    finally { setLoadingActions(false); }
+  }, [g.id, token]);
+  useEffect(() => { loadActions(); }, [loadActions]);
+
+  const logAction = async (action_type, text) => {
+    try { await sbRest("actions", { method: "POST", token, body: { grievance_id: g.id, action_type, comment: text || null } }); loadActions(); }
+    catch (e) {}
+  };
+
+  const patchGrievance = async (body, type, text) => {
+    const rows = await sbRest(`grievances?id=eq.${g.id}`, { method: "PATCH", token, body });
+    const updated = rows[0];
+    setG(updated); onUpdated(updated);
+    if (type) logAction(type, text);
+    return updated;
+  };
+
+  const addComment = async () => {
+    if (!comment.trim()) return;
+    setSavingComment(true); setErr("");
+    try { await logAction("commentaire", comment.trim()); setComment(""); }
+    catch (e) { setErr(e.message); }
+    finally { setSavingComment(false); }
+  };
+
+  const updateStatus = async () => {
+    if (status === g.status) return;
+    setSavingStatus(true); setErr("");
+    try { await patchGrievance({ status }, "changement de statut", `${t(g.status)} → ${t(status)}`); }
+    catch (e) { setErr(e.message); }
+    finally { setSavingStatus(false); }
+  };
+
+  const updateAssignee = async () => {
+    setSavingAssign(true); setErr("");
+    try {
+      const u = users.find(u => u.id === assignee);
+      await patchGrievance({ assigned_to: assignee || null }, "attribution", u ? (u.full_name || u.email) : t("Non assigné"));
+    } catch (e) { setErr(e.message); }
+    finally { setSavingAssign(false); }
+  };
+
+  const escalate = async () => {
+    setEscalating(true); setErr("");
+    try { await patchGrievance({ escalated: true, escalated_at: new Date().toISOString() }, "escalade", null); }
+    catch (e) { setErr(e.message); }
+    finally { setEscalating(false); }
+  };
+
+  const saveFeedback = async () => {
+    setSavingFb(true); setErr("");
+    try { await patchGrievance({ feedback_given: true, feedback_text: fbText, feedback_date: fbDate, feedback_satisfaction: fbSat }, "retour d'information", fbText.slice(0, 120)); }
+    catch (e) { setErr(e.message); }
+    finally { setSavingFb(false); }
+  };
+
+  const sectionCls = "rounded-md border shadow-sm p-5";
+  const sectionStyle = { borderColor: C.paperDim, background: "#fff" };
+
+  return (
+    <div className="mx-auto max-w-3xl p-6 sm:p-8">
+      <div className="mb-6 flex items-center gap-3">
+        <button onClick={() => setView("list")} className="rounded p-1.5" style={{ color: C.inkSoft }}>‹</button>
+        <div className="flex-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <CaseTag id={g.case_number} />
+            <StatusBadge status={g.status} />
+            {g.escalated && <span className="rounded-full px-2.5 py-1 text-xs font-semibold" style={{ background: C.red + "1a", color: C.red }}>🚨 {t("Dossier escaladé")}</span>}
+            {isOverdue(g) && <span className="rounded-full px-2.5 py-1 text-xs font-semibold" style={{ background: C.red + "1a", color: C.red }}>{t("En retard")}</span>}
+          </div>
+          <h2 className="mt-1 text-xl font-black tracking-tight" style={{ color: C.ink }}>{g.village || "—"} · {t(g.category)}</h2>
+        </div>
+      </div>
+
+      {err && <Notice kind="err">{err}</Notice>}
+
+      <div className="mb-5 grid gap-5 sm:grid-cols-2">
+        <section className={sectionCls} style={sectionStyle}>
+          <h3 className="mb-3 text-sm font-bold" style={{ color: C.primary }}>{t("Informations générales")}</h3>
+          <dl className="space-y-1.5 text-sm">
+            <div className="flex justify-between"><dt style={{ color: C.inkSoft }}>{t("Date de réception")}</dt><dd style={{ color: C.ink }}>{g.date_received}</dd></div>
+            <div className="flex justify-between"><dt style={{ color: C.inkSoft }}>{t("Priorité")}</dt><dd style={{ color: C.ink }}>{t(g.priority)}</dd></div>
+            <div className="flex justify-between"><dt style={{ color: C.inkSoft }}>{t("Canal de réception")}</dt><dd style={{ color: C.ink }}>{t(g.channel)}</dd></div>
+            <div className="flex justify-between"><dt style={{ color: C.inkSoft }}>{t("Date limite")}</dt><dd style={{ color: isOverdue(g) ? C.red : C.ink }}>{g.deadline || t("Pas de délai fixé")}</dd></div>
+          </dl>
+          {g.description && <p className="mt-3 border-t pt-3 text-sm" style={{ borderColor: C.paperDim, color: C.ink }}>{g.description}</p>}
+        </section>
+
+        <section className={sectionCls} style={sectionStyle}>
+          <h3 className="mb-3 text-sm font-bold" style={{ color: C.primary }}>{t("Plaignant")}</h3>
+          {g.is_anonymous ? <p className="text-sm" style={{ color: C.inkSoft }}>{t("Anonyme")}</p> : (
+            <dl className="space-y-1.5 text-sm">
+              <div className="flex justify-between"><dt style={{ color: C.inkSoft }}>{t("Nom et prénom")}</dt><dd style={{ color: C.ink }}>{g.complainant_name || t("Non renseigné")}</dd></div>
+              <div className="flex justify-between"><dt style={{ color: C.inkSoft }}>{t("Sexe")}</dt><dd style={{ color: C.ink }}>{g.complainant_gender ? t(g.complainant_gender) : "—"}</dd></div>
+              <div className="flex justify-between"><dt style={{ color: C.inkSoft }}>{t("Contact")}</dt><dd style={{ color: C.ink }}>{g.complainant_contact || t("Non renseigné")}</dd></div>
+            </dl>
+          )}
+        </section>
+      </div>
+
+      <div className="mb-5 grid gap-5 sm:grid-cols-2">
+        <section className={sectionCls} style={sectionStyle}>
+          <h3 className="mb-3 text-sm font-bold" style={{ color: C.primary }}>{t("Changer le statut")}</h3>
+          <select value={status} onChange={(e)=>setStatus(e.target.value)} className={inputCls} style={inputStyle}>
+            {STATUS_ORDER.map(s => <option key={s} value={s}>{t(s)}</option>)}
+          </select>
+          <button onClick={updateStatus} disabled={savingStatus || status === g.status} className="mt-3 flex items-center gap-2 rounded-md px-4 py-2 text-xs font-bold text-white disabled:opacity-50" style={{ background: C.primary }}>{savingStatus && <Spinner />}{t("Mettre à jour")}</button>
+        </section>
+
+        <section className={sectionCls} style={sectionStyle}>
+          <h3 className="mb-3 text-sm font-bold" style={{ color: C.primary }}>{t("Attribution")}</h3>
+          {canManage ? (
+            <>
+              <select value={assignee} onChange={(e)=>setAssignee(e.target.value)} className={inputCls} style={inputStyle}>
+                <option value="">{t("Non assigné")}</option>
+                {users.map(u => <option key={u.id} value={u.id}>{u.full_name || u.email}</option>)}
+              </select>
+              <button onClick={updateAssignee} disabled={savingAssign} className="mt-3 flex items-center gap-2 rounded-md px-4 py-2 text-xs font-bold text-white disabled:opacity-50" style={{ background: C.primary }}>{savingAssign && <Spinner />}{t("Attribuer")}</button>
+            </>
+          ) : (
+            <p className="text-sm" style={{ color: C.ink }}>{(users.find(u => u.id === g.assigned_to) || {}).full_name || (users.find(u => u.id === g.assigned_to) || {}).email || t("Non assigné")}</p>
+          )}
+          {canManage && !g.escalated && (
+            <button onClick={escalate} disabled={escalating} className="mt-3 flex items-center gap-2 rounded-md border px-4 py-2 text-xs font-bold disabled:opacity-50" style={{ borderColor: C.red, color: C.red }}>{escalating && <Spinner />}🚨 {t("Signaler une escalade")}</button>
+          )}
+          {g.escalated && <p className="mt-3 text-xs font-semibold" style={{ color: C.red }}>{t("Escaladé le")} {new Date(g.escalated_at).toLocaleDateString()}</p>}
+        </section>
+      </div>
+
+      <section className={sectionCls + " mb-5"} style={sectionStyle}>
+        <h3 className="mb-3 text-sm font-bold" style={{ color: C.primary }}>{t("Retour d'information au plaignant")}</h3>
+        {g.feedback_given && <p className="mb-3 text-xs font-semibold" style={{ color: C.green }}>✓ {t("Retour enregistré le")} {g.feedback_date}</p>}
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Field label={t("Satisfaction du plaignant")}>
+            <select value={fbSat} onChange={(e)=>setFbSat(e.target.value)} className={inputCls} style={inputStyle}>
+              <option value="Satisfait">{t("Satisfait")}</option>
+              <option value="Neutre">{t("Neutre")}</option>
+              <option value="Insatisfait">{t("Insatisfait")}</option>
+            </select>
+          </Field>
+          <Field label={t("Date du retour")}><input type="date" value={fbDate} onChange={(e)=>setFbDate(e.target.value)} className={inputCls} style={inputStyle} /></Field>
+        </div>
+        <div className="mt-3">
+          <Field label={t("Contenu du retour donné")}><textarea rows={3} value={fbText} onChange={(e)=>setFbText(e.target.value)} className={inputCls} style={inputStyle} /></Field>
+        </div>
+        <button onClick={saveFeedback} disabled={savingFb} className="mt-3 flex items-center gap-2 rounded-md px-4 py-2 text-xs font-bold text-white disabled:opacity-50" style={{ background: C.primary }}>{savingFb && <Spinner />}{t("Enregistrer le retour")}</button>
+      </section>
+
+      <section className={sectionCls} style={sectionStyle}>
+        <h3 className="mb-3 text-sm font-bold" style={{ color: C.primary }}>{t("Journal des actions")}</h3>
+        <div className="mb-3 flex gap-2">
+          <input value={comment} onChange={(e)=>setComment(e.target.value)} placeholder={t("Écrire un commentaire ou une mise à jour…")} className={inputCls} style={inputStyle} />
+          <button onClick={addComment} disabled={savingComment} className="shrink-0 rounded-md px-4 py-2 text-xs font-bold text-white disabled:opacity-50" style={{ background: C.primary }}>{t("Ajouter")}</button>
+        </div>
+        {loadingActions ? <div className="flex items-center gap-2 text-sm" style={{ color: C.inkSoft }}><Spinner /> {t("Chargement du journal…")}</div>
+          : actions.length === 0 ? <p className="text-sm" style={{ color: C.inkSoft }}>{t("Aucune action enregistrée pour l'instant.")}</p>
+          : actions.map(a => <ActionRow key={a.id} a={a} />)}
+      </section>
+    </div>
+  );
+}
+
 function Field({ label, children, required }) {
   return (
     <label className="block">
@@ -557,7 +900,7 @@ function Field({ label, children, required }) {
     </label>
   );
 }
-const inputCls = "w-full rounded border px-3 py-2 text-sm outline-none";
+const inputCls = "w-full rounded-md border px-3 py-2 text-sm outline-none";
 const inputStyle = { borderColor: C.paperDim, color: C.ink };
 
 function NewGrievanceForm({ token, onCreated, setView }) {
@@ -606,8 +949,8 @@ function NewGrievanceForm({ token, onCreated, setView }) {
       {sensitive && <div className="mb-5 flex items-center gap-2 rounded border px-4 py-3 text-sm font-semibold" style={{ borderColor: C.red, color: C.red, background: C.red + "0d" }}>⚠️ {t("Dossier sensible — accès restreint, confidentialité renforcée")}</div>}
       {error && <div className="mb-5 rounded border px-4 py-3 text-sm font-semibold" style={{ borderColor: C.red, color: C.red, background: C.red + "0d" }}>{error}</div>}
       <div className="space-y-8">
-        <section className="rounded-lg border p-5" style={{ borderColor: C.paperDim, background: "#fff" }}>
-          <h3 className="mb-4 text-sm font-bold" style={{ color: C.brass }}>{t("1. Informations générales")}</h3>
+        <section className="rounded-md border shadow-sm p-5" style={{ borderColor: C.paperDim, background: "#fff" }}>
+          <h3 className="mb-4 text-sm font-bold" style={{ color: C.primary }}>{t("1. Informations générales")}</h3>
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             <Field label={t("Date de réception")} required><input type="date" value={form.date} onChange={set("date")} className={inputCls} style={inputStyle} /></Field>
             <Field label={t("Village / Communauté")} required><input value={form.village} onChange={set("village")} placeholder={t("Ex : Kanzenze")} className={inputCls} style={inputStyle} /></Field>
@@ -616,8 +959,8 @@ function NewGrievanceForm({ token, onCreated, setView }) {
             <Field label={t("Longitude (optionnel)")}><input value={form.lng} onChange={set("lng")} placeholder="25.47" className={inputCls} style={inputStyle} /></Field>
           </div>
         </section>
-        <section className="rounded-lg border p-5" style={{ borderColor: C.paperDim, background: "#fff" }}>
-          <h3 className="mb-4 text-sm font-bold" style={{ color: C.brass }}>{t("2. Plaignant")}</h3>
+        <section className="rounded-md border shadow-sm p-5" style={{ borderColor: C.paperDim, background: "#fff" }}>
+          <h3 className="mb-4 text-sm font-bold" style={{ color: C.primary }}>{t("2. Plaignant")}</h3>
           <label className="mb-4 flex items-center gap-2 text-sm" style={{ color: C.ink }}>
             <input type="checkbox" checked={form.anonymous} onChange={(e)=>set("anonymous")(e.target.checked)} /> {t("Plainte anonyme")}
           </label>
@@ -629,16 +972,16 @@ function NewGrievanceForm({ token, onCreated, setView }) {
             </div>
           )}
         </section>
-        <section className="rounded-lg border p-5" style={{ borderColor: C.paperDim, background: "#fff" }}>
-          <h3 className="mb-4 text-sm font-bold" style={{ color: C.brass }}>{t("3. Détails de la plainte")}</h3>
+        <section className="rounded-md border shadow-sm p-5" style={{ borderColor: C.paperDim, background: "#fff" }}>
+          <h3 className="mb-4 text-sm font-bold" style={{ color: C.primary }}>{t("3. Détails de la plainte")}</h3>
           <div className="mb-4 grid gap-4 sm:grid-cols-2">
             <Field label={t("Catégorie")} required><select value={form.category} onChange={set("category")} className={inputCls} style={inputStyle}>{CATEGORIES.map(c=><option key={c} value={c}>{t(c)}</option>)}</select></Field>
             <Field label={t("Pièces jointes")}><div className="flex items-center gap-2 rounded border px-3 py-2 text-sm" style={{ borderColor: C.paperDim, color: C.inkSoft }}>📎 {t("Photo, audio ou document (v2)")}</div></Field>
           </div>
           <Field label={t("Description")} required><textarea rows={4} value={form.description} onChange={set("description")} placeholder={t("Décrire les faits, personnes concernées, contexte…")} className={inputCls} style={inputStyle} /></Field>
         </section>
-        <section className="rounded-lg border p-5" style={{ borderColor: C.paperDim, background: "#fff" }}>
-          <h3 className="mb-4 text-sm font-bold" style={{ color: C.brass }}>{t("4. Classification & traitement")}</h3>
+        <section className="rounded-md border shadow-sm p-5" style={{ borderColor: C.paperDim, background: "#fff" }}>
+          <h3 className="mb-4 text-sm font-bold" style={{ color: C.primary }}>{t("4. Classification & traitement")}</h3>
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             <Field label={t("Niveau de priorité")}><select value={form.priority} onChange={set("priority")} className={inputCls} style={inputStyle}>{PRIORITIES.map(p=><option key={p} value={p}>{t(p)}</option>)}</select></Field>
             <Field label={t("Date limite de résolution")}><input type="date" value={form.deadline} onChange={set("deadline")} className={inputCls} style={inputStyle} /></Field>
@@ -646,7 +989,7 @@ function NewGrievanceForm({ token, onCreated, setView }) {
           </div>
         </section>
         <div className="flex items-center gap-3">
-          <button onClick={submit} disabled={saving} className="flex items-center gap-2 rounded px-6 py-2.5 text-sm font-bold text-white disabled:opacity-60" style={{ background: C.brass }}>{saving && <Spinner />}Enregistrer la plainte</button>
+          <button onClick={submit} disabled={saving} className="flex items-center gap-2 rounded px-6 py-2.5 text-sm font-bold text-white disabled:opacity-60" style={{ background: C.primary }}>{saving && <Spinner />}Enregistrer la plainte</button>
           <button onClick={() => setView("dashboard")} className="text-sm font-semibold" style={{ color: C.inkSoft }}>{t("Annuler")}</button>
         </div>
       </div>
@@ -658,6 +1001,7 @@ function GrievLinkApp() {
   const [lang, setLangState] = useState(LANG);
   LANG = lang;
   const setLang = (l) => { LANG = l; try { localStorage.setItem("gl_lang", l); } catch(e) {} setLangState(l); };
+  const [recoveryToken, setRecoveryToken] = useState(() => parseRecoveryParams());
   const [session, setSession] = useState(null);
   const [profile, setProfile] = useState(null);
   const [pState, setPState] = useState("idle");
@@ -665,8 +1009,16 @@ function GrievLinkApp() {
   const [grievances, setGrievances] = useState([]);
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState("");
+  const [selected, setSelected] = useState(null);
+  const [users, setUsers] = useState([]);
 
-  const logout = () => { setSession(null); setProfile(null); setPState("idle"); setGrievances([]); setView("dashboard"); };
+  const logout = () => { setSession(null); setProfile(null); setPState("idle"); setGrievances([]); setSelected(null); setView("dashboard"); };
+
+  const openGrievance = (g) => { setSelected(g); setView("detail"); };
+  const onGrievanceUpdated = (row) => {
+    setGrievances(prev => prev.map(x => x.id === row.id ? row : x));
+    setSelected(row);
+  };
 
   const loadProfile = useCallback(async (sess) => {
     setPState("loading");
@@ -683,26 +1035,32 @@ function GrievLinkApp() {
     finally { setLoading(false); }
   }, []);
 
-  useEffect(() => { if (session) loadProfile(session); }, [session, loadProfile]);
-  useEffect(() => { if (session?.token && profile?.active) loadGrievances(session.token); }, [session, profile, loadGrievances]);
+  const loadUsers = useCallback(async (token) => {
+    try { setUsers(await sbRest("profiles?select=id,full_name,email,role&active=eq.true", { token })); }
+    catch (e) {}
+  }, []);
 
+  useEffect(() => { if (session) loadProfile(session); }, [session, loadProfile]);
+  useEffect(() => { if (session?.token && profile?.active) { loadGrievances(session.token); loadUsers(session.token); } }, [session, profile, loadGrievances, loadUsers]);
+
+  if (recoveryToken) return <RecoveryScreen accessToken={recoveryToken} onDone={() => setRecoveryToken(null)} lang={lang} setLang={setLang} />;
   if (!session) return <LoginScreen onAuth={setSession} lang={lang} setLang={setLang} />;
   if (pState === "idle" || pState === "loading")
-    return <div className="flex min-h-screen items-center justify-center gap-2 text-sm" style={{ background: C.basalt, color: "#A9AFA6" }}><Spinner /> {t("Chargement…")}</div>;
+    return <div className="flex min-h-screen items-center justify-center gap-2 text-sm" style={{ background: C.paper, color: C.inkSoft }}><Spinner /> {t("Chargement…")}</div>;
   if (pState === "missing")
     return <StatusScreen title={t("Profil")} text={t("Profil introuvable. Le script SQL du lot 1 doit être exécuté dans Supabase.")} lang={lang} setLang={setLang} onLogout={logout} onReload={() => loadProfile(session)} />;
   if (!profile.active)
     return <StatusScreen title={t("Compte en attente d'activation")} text={t("Votre compte a été créé. Un administrateur doit l'activer avant que vous puissiez accéder à la plateforme.")} lang={lang} setLang={setLang} onLogout={logout} onReload={() => loadProfile(session)} />;
 
   const allowed = navItems(profile.role).filter(i => i.active);
-  const current = allowed.some(i => i.key === view) ? view : "dashboard";
+  const current = (view === "detail" || allowed.some(i => i.key === view)) ? view : "dashboard";
 
   return (
     <div className="flex min-h-screen" style={{ background: C.paper, fontFamily: "ui-sans-serif, system-ui, sans-serif" }}>
       <Sidebar view={current} setView={setView} onLogout={logout} profile={profile} />
       <main className="flex-1 overflow-auto">
         <div className="flex items-center justify-between border-b px-4 py-2 sm:justify-end" style={{ borderColor: C.paperDim }}>
-          <span className="text-base font-black sm:hidden" style={{ color: C.ink }}>⛰ GrievLink</span>
+          <span className="text-base font-extrabold tracking-wide sm:hidden" style={{ color: C.navy, fontFamily: "'Playfair Display', serif", fontVariant: "small-caps" }}>⛏ GrievLink</span>
           <div className="flex items-center gap-3">
             <LangSwitch lang={lang} setLang={setLang} />
             <button onClick={logout} className="text-xs sm:hidden" style={{ color: C.inkSoft }}>↩ {t("Se déconnecter")}</button>
@@ -710,14 +1068,15 @@ function GrievLinkApp() {
         </div>
         <div className="flex gap-1 overflow-x-auto border-b px-2 py-1.5 sm:hidden" style={{ borderColor: C.paperDim }}>
           {allowed.filter(i => i.key !== "search").map(i => (
-            <button key={i.key} onClick={() => setView(i.key)} className="whitespace-nowrap rounded px-3 py-1.5 text-xs font-semibold" style={{ background: current === i.key ? C.brass : "transparent", color: current === i.key ? "#fff" : C.inkSoft }}>{i.emoji} {i.label}</button>
+            <button key={i.key} onClick={() => setView(i.key)} className="whitespace-nowrap rounded px-3 py-1.5 text-xs font-semibold" style={{ background: current === i.key ? C.primary : "transparent", color: current === i.key ? "#fff" : C.inkSoft }}>{i.emoji} {i.label}</button>
           ))}
         </div>
         {loadError && <div className="m-6 rounded border px-4 py-3 text-sm font-semibold" style={{ borderColor: C.red, color: C.red, background: C.red + "0d" }}>{t("Impossible de charger les plaintes :")} {loadError}</div>}
         {loading && <div className="flex items-center gap-2 p-6 text-sm" style={{ color: C.inkSoft }}><Spinner /> {t("Chargement des dossiers…")}</div>}
-        {!loading && current === "dashboard" && <Dashboard grievances={grievances} setView={setView} />}
+        {!loading && current === "dashboard" && <Dashboard grievances={grievances} setView={setView} onOpen={openGrievance} />}
         {!loading && current === "new" && <NewGrievanceForm token={session.token} setView={setView} onCreated={(row)=>setGrievances(prev=>[...prev,row])} />}
-        {!loading && (current === "list" || current === "search") && <ListView grievances={grievances} setView={setView} />}
+        {!loading && (current === "list" || current === "search") && <ListView grievances={grievances} setView={setView} onOpen={openGrievance} />}
+        {current === "detail" && selected && <GrievanceDetail grievance={selected} token={session.token} profile={profile} users={users} setView={setView} onUpdated={onGrievanceUpdated} />}
         {current === "account" && <AccountView session={session} profile={profile} />}
         {current === "users" && <UsersView token={session.token} meId={session.user.id} />}
       </main>
